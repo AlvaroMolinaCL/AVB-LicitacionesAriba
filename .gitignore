@@ -16,6 +16,7 @@ build/
 
 # Datos locales, perfiles de navegador y archivos de bloqueo
 .datos/
+.github/copilot-instructions.md
 reportes_diarios/
 resumen_licitaciones/
 *.lock

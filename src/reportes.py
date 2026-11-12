@@ -24,10 +24,10 @@ def leer_exportacion(ruta: Path) -> list[Evento]:
     documento = BeautifulSoup(contenido, "html.parser")
     cabeceras = [celda.get_text(" ", strip=True).casefold() for celda in documento.select("div.tableHead th")]
     if cabeceras != ["título", "id", "hora de finalización", "estado", "tipo de evento"]:
-        raise ValueError("La exportacion tiene columnas diferentes a las esperadas")
+        raise ValueError("La exportación tiene columnas diferentes a las esperadas")
     tabla = documento.select_one("table.tableBody")
     if tabla is None:
-        raise ValueError("La exportacion de Ariba no contiene la tabla de eventos esperada")
+        raise ValueError("La exportación de Ariba no contiene la tabla de eventos esperada")
 
     eventos = []
     for fila in tabla.find_all("tr", recursive=False):
@@ -35,24 +35,24 @@ def leer_exportacion(ruta: Path) -> list[Evento]:
         if not celdas:
             continue
         if len(celdas) != 5:
-            raise ValueError("La exportacion contiene una fila con columnas inesperadas")
+            raise ValueError("La exportación contiene una fila con columnas inesperadas")
         titulo, identificador, finalizacion, estado, tipo = [
             celda.get_text(" ", strip=True).replace("\xa0", "").strip()
             for celda in celdas
         ]
         if estado.casefold() != "abierto":
-            raise ValueError(f"La exportacion contiene un evento no abierto: {identificador}")
+            raise ValueError(f"La exportación contiene un evento no abierto: {identificador}")
         vinculo = celdas[0].find("a", href=True)
         if not titulo or not identificador or not vinculo:
-            raise ValueError("Hay un evento sin titulo, ID o enlace")
+            raise ValueError("Hay un evento sin título, ID o enlace")
         formato_fecha = "%d/%m/%Y %I:%M %p" if re.search(r"\s[AP]M$", finalizacion, re.I) else "%d/%m/%Y %H:%M"
         fecha = datetime.strptime(finalizacion, formato_fecha) if finalizacion else None
         eventos.append(Evento(titulo, identificador, fecha, tipo, vinculo["href"]))
 
     if not eventos:
-        raise ValueError("La exportacion no contiene eventos abiertos; no se actualizara la referencia")
+        raise ValueError("La exportación no contiene eventos abiertos; no se actualizará la referencia")
     if len({evento.identificador for evento in eventos}) != len(eventos):
-        raise ValueError("La exportacion contiene ID duplicados")
+        raise ValueError("La exportación contiene ID duplicados")
     return eventos
 
 
@@ -68,7 +68,7 @@ def leer_ids_anteriores(ruta: Path) -> list[str]:
             if fila[0] is not None and str(fila[0]).strip()
         ]
         if not identificadores or len(set(identificadores)) != len(identificadores):
-            raise ValueError("El reporte anterior no tiene ID validos o contiene duplicados")
+            raise ValueError("El reporte anterior no tiene ID válidos o contiene duplicados")
         return identificadores
     finally:
         libro.close()
@@ -104,11 +104,11 @@ def buscar_reporte_anterior(carpeta: Path, hoy: date) -> Path:
                 candidatos.append((fecha, ruta))
                 break
     if not candidatos:
-        raise FileNotFoundError("No se encontro un reporte anterior para comparar")
+        raise FileNotFoundError("No se encontró un reporte anterior para comparar")
     fecha_mas_reciente = max(fecha for fecha, _ in candidatos)
     ultimos = [ruta for fecha, ruta in candidatos if fecha == fecha_mas_reciente]
     if len(ultimos) != 1:
-        raise ValueError("Hay mas de un reporte anterior con la misma fecha")
+        raise ValueError("Hay más de un reporte anterior con la misma fecha")
     return ultimos[0]
 
 

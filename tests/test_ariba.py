@@ -133,7 +133,7 @@ class PruebasAriba(unittest.TestCase):
         boton.click.side_effect = lambda: pagina.route.call_args.args[1](ruta)
         with tempfile.TemporaryDirectory() as carpeta:
             destino = Path(carpeta) / "evento.doc"
-            with self.assertRaisesRegex(ValueError, "Word valido"):
+            with self.assertRaisesRegex(ValueError, "Word válido"):
                 capturar_impresion(pagina, boton, destino)
             self.assertFalse(destino.exists())
         pagina.unroute.assert_called_once()
