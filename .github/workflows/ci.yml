@@ -11,6 +11,7 @@ jobs:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: windows-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.14"]
 
@@ -29,7 +30,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Cachear navegadores de Playwright
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: .datos/navegadores
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Instalar Chromium para pruebas de navegación
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\.datos\navegadores
+        run: python -m playwright install chromium
+
       - name: Ejecutar pruebas unitarias
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\.datos\navegadores
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
   compilar-ejecutable:
@@ -44,7 +60,7 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: "pip"
 
       - name: Instalar dependencias y PyInstaller
@@ -57,7 +73,7 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --onefile --console --name Licitaciones_Codelco --distpath . --workpath .datos/pyinstaller-produccion-trabajo --specpath .datos/pyinstaller-config --hidden-import keyring.backends.Windows --collect-all playwright principal.py
 
-      - name: Subir ejecutable como artefacto (opcional, disponible 7 días)
+      - name: Subir ejecutable como artefacto
         uses: actions/upload-artifact@v4
         with:
           name: Licitaciones_Codelco-Windows
