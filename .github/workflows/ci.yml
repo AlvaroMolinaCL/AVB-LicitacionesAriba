@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configurar Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
@@ -32,7 +32,7 @@ jobs:
 
       - name: Cachear navegadores de Playwright
         id: cache-playwright
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .datos/navegadores
           key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
@@ -55,10 +55,10 @@ jobs:
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.14"
           cache: "pip"
@@ -74,7 +74,7 @@ jobs:
           python -m PyInstaller --noconfirm --onefile --console --name Licitaciones_Codelco --distpath . --workpath .datos/pyinstaller-produccion-trabajo --specpath .datos/pyinstaller-config --hidden-import keyring.backends.Windows --collect-all playwright principal.py
 
       - name: Subir ejecutable como artefacto
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Licitaciones_Codelco-Windows
           path: Licitaciones_Codelco.exe
