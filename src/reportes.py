@@ -22,12 +22,23 @@ class Evento:
 def leer_exportacion(ruta: Path) -> list[Evento]:
     contenido = ruta.read_text(encoding="utf-8-sig")
     documento = BeautifulSoup(contenido, "html.parser")
-    cabeceras = [celda.get_text(" ", strip=True).casefold() for celda in documento.select("div.tableHead th")]
-    if cabeceras != ["título", "id", "hora de finalización", "estado", "tipo de evento"]:
+    cabeceras = [
+        celda.get_text(" ", strip=True).casefold()
+        for celda in documento.select("div.tableHead th")
+    ]
+    if cabeceras != [
+        "título",
+        "id",
+        "hora de finalización",
+        "estado",
+        "tipo de evento",
+    ]:
         raise ValueError("La exportación tiene columnas diferentes a las esperadas")
     tabla = documento.select_one("table.tableBody")
     if tabla is None:
-        raise ValueError("La exportación de Ariba no contiene la tabla de eventos esperada")
+        raise ValueError(
+            "La exportación de Ariba no contiene la tabla de eventos esperada"
+        )
 
     eventos = []
     for fila in tabla.find_all("tr", recursive=False):
@@ -35,22 +46,32 @@ def leer_exportacion(ruta: Path) -> list[Evento]:
         if not celdas:
             continue
         if len(celdas) != 5:
-            raise ValueError("La exportación contiene una fila con columnas inesperadas")
+            raise ValueError(
+                "La exportación contiene una fila con columnas inesperadas"
+            )
         titulo, identificador, finalizacion, estado, tipo = [
             celda.get_text(" ", strip=True).replace("\xa0", "").strip()
             for celda in celdas
         ]
         if estado.casefold() != "abierto":
-            raise ValueError(f"La exportación contiene un evento no abierto: {identificador}")
+            raise ValueError(
+                f"La exportación contiene un evento no abierto: {identificador}"
+            )
         vinculo = celdas[0].find("a", href=True)
         if not titulo or not identificador or not vinculo:
             raise ValueError("Hay un evento sin título, ID o enlace")
-        formato_fecha = "%d/%m/%Y %I:%M %p" if re.search(r"\s[AP]M$", finalizacion, re.I) else "%d/%m/%Y %H:%M"
+        formato_fecha = (
+            "%d/%m/%Y %I:%M %p"
+            if re.search(r"\s[AP]M$", finalizacion, re.I)
+            else "%d/%m/%Y %H:%M"
+        )
         fecha = datetime.strptime(finalizacion, formato_fecha) if finalizacion else None
         eventos.append(Evento(titulo, identificador, fecha, tipo, vinculo["href"]))
 
     if not eventos:
-        raise ValueError("La exportación no contiene eventos abiertos; no se actualizará la referencia")
+        raise ValueError(
+            "La exportación no contiene eventos abiertos; no se actualizará la referencia"
+        )
     if len({evento.identificador for evento in eventos}) != len(eventos):
         raise ValueError("La exportación contiene ID duplicados")
     return eventos
@@ -64,11 +85,15 @@ def leer_ids_anteriores(ruta: Path) -> list[str]:
             raise ValueError("El reporte anterior no tiene la columna ID esperada en B")
         identificadores = [
             str(fila[0]).strip()
-            for fila in hoja.iter_rows(min_row=2, min_col=2, max_col=2, values_only=True)
+            for fila in hoja.iter_rows(
+                min_row=2, min_col=2, max_col=2, values_only=True
+            )
             if fila[0] is not None and str(fila[0]).strip()
         ]
         if not identificadores or len(set(identificadores)) != len(identificadores):
-            raise ValueError("El reporte anterior no tiene ID válidos o contiene duplicados")
+            raise ValueError(
+                "El reporte anterior no tiene ID válidos o contiene duplicados"
+            )
         return identificadores
     finally:
         libro.close()
@@ -82,7 +107,9 @@ def eventos_nuevos(eventos: list[Evento], anteriores: list[str]) -> list[Evento]
 def buscar_reporte_anterior(carpeta: Path, hoy: date) -> Path:
     candidatos = []
     for ruta in carpeta.glob("*.xlsx"):
-        nuevo = re.fullmatch(r"(\d{4}-\d{2}-\d{2})_Licitaciones_Codelco_\(Ariba\)\.xlsx", ruta.name, re.I)
+        nuevo = re.fullmatch(
+            r"(\d{4}-\d{2}-\d{2})_Licitaciones_Codelco_\(Ariba\)\.xlsx", ruta.name, re.I
+        )
         if nuevo:
             try:
                 fecha = date.fromisoformat(nuevo.group(1))
@@ -91,7 +118,9 @@ def buscar_reporte_anterior(carpeta: Path, hoy: date) -> Path:
             if fecha < hoy:
                 candidatos.append((fecha, ruta))
             continue
-        coincidencia = re.fullmatch(r"LIC\s+ARIBA\s+(\d{1,2})-(\d{1,2})\.xlsx", ruta.name, re.I)
+        coincidencia = re.fullmatch(
+            r"LIC\s+ARIBA\s+(\d{1,2})-(\d{1,2})\.xlsx", ruta.name, re.I
+        )
         if not coincidencia:
             continue
         dia, mes = map(int, coincidencia.groups())
@@ -118,7 +147,9 @@ def guardar_reporte(ruta: Path, eventos: list[Evento], anteriores: list[str]) ->
     hoja.title = "data"
     hoja.append(["Título", "ID", "Hora de finalización", "Tipo de evento", "ID"])
     for evento in eventos:
-        hoja.append([evento.titulo, evento.identificador, evento.finalizacion, evento.tipo])
+        hoja.append(
+            [evento.titulo, evento.identificador, evento.finalizacion, evento.tipo]
+        )
         celda_titulo = hoja.cell(hoja.max_row, 1)
         celda_titulo.data_type = "s"
         celda_titulo.hyperlink = evento.enlace

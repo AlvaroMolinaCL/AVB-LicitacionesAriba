@@ -7,8 +7,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
-from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
-
+from playwright.sync_api import (
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 URL_INICIO = "https://service.ariba.com/Authenticator.aw/ad/ssoIDP"
 SERVICIO = "AVB-LicitacionesAriba"
@@ -24,7 +26,9 @@ class ServicioTemporalError(TimeoutError):
 
 def fecha_vencimiento(ruta: Path) -> datetime | None:
     documento = BeautifulSoup(ruta.read_text(encoding="utf-8-sig"), "html.parser")
-    if not documento.find(string=lambda texto: texto and "ariba.sourcing.rfxui.PrintRFXEncode" in texto):
+    if not documento.find(
+        string=lambda texto: texto and "ariba.sourcing.rfxui.PrintRFXEncode" in texto
+    ):
         raise ValueError("El documento descargado no es el informe HTML de Ariba")
     etiqueta = documento.find(string=re.compile(r"^\s*Fecha de vencimiento\s*$", re.I))
     fila = etiqueta.find_parent("tr") if etiqueta else None
@@ -51,13 +55,15 @@ def nombre_documento(fecha: datetime, identificador: str, titulo: str) -> str:
     if not nombre:
         raise ValueError("El título del evento no es válido")
     prefijo = f"{fecha:%d-%m} {identificador} - "
-    return prefijo + nombre[:160 - len(prefijo)].rstrip(" .") + ".doc"
+    return prefijo + nombre[: 160 - len(prefijo)].rstrip(" .") + ".doc"
 
 
 def url_ariba(url: str) -> bool:
     destino = urlparse(url)
     dominio = (destino.hostname or "").lower()
-    return destino.scheme == "https" and (dominio == "ariba.com" or dominio.endswith(".ariba.com"))
+    return destino.scheme == "https" and (
+        dominio == "ariba.com" or dominio.endswith(".ariba.com")
+    )
 
 
 def es_impresion(url: str, identificador_control: str) -> bool:
@@ -87,14 +93,25 @@ def capturar_impresion(pagina, boton, destino: Path) -> None:
             respuesta = ruta.fetch(timeout=60000)
             contenido = respuesta.body()
             tipo = respuesta.headers.get("content-type", "").casefold()
-            if respuesta.status in (401, 403) or ("text/html" in tipo and re.search(r"login|sign.?in|inicio de sesi[oó]n|contrase(?:n|ñ)a|password", contenido.decode("utf-8", errors="replace"), re.I)):
+            if respuesta.status in (401, 403) or (
+                "text/html" in tipo
+                and re.search(
+                    r"login|sign.?in|inicio de sesi[oó]n|contrase(?:n|ñ)a|password",
+                    contenido.decode("utf-8", errors="replace"),
+                    re.I,
+                )
+            ):
                 raise SesionExpiradaError("Ariba requiere iniciar sesión nuevamente")
             if respuesta.status == 429 or 500 <= respuesta.status < 600:
-                raise ServicioTemporalError(f"Ariba respondió con HTTP {respuesta.status}")
+                raise ServicioTemporalError(
+                    f"Ariba respondió con HTTP {respuesta.status}"
+                )
             if respuesta.status != 200 or "application/msword" not in tipo:
                 raise ValueError("Ariba no devolvió un documento Word válido")
             if b"ariba.sourcing.rfxui.PrintRFXEncode" not in contenido:
-                raise ValueError("El documento recibido no corresponde a una impresión de Ariba")
+                raise ValueError(
+                    "El documento recibido no corresponde a una impresión de Ariba"
+                )
             resultado.append(contenido)
         except Exception as error:
             resultado.append(error)
@@ -102,7 +119,9 @@ def capturar_impresion(pagina, boton, destino: Path) -> None:
 
     pagina.route(es_solicitud, interceptar, times=1)
     try:
-        with pagina.expect_response(lambda respuesta: es_solicitud(respuesta.url), timeout=60000):
+        with pagina.expect_response(
+            lambda respuesta: es_solicitud(respuesta.url), timeout=60000
+        ):
             boton.click()
     finally:
         pagina.unroute(es_solicitud, interceptar)
@@ -119,7 +138,9 @@ def esperar_marco_eventos(pagina, segundos: int = 45):
     while time.monotonic() < limite:
         for marco in pagina.frames:
             try:
-                if marco.get_by_role("heading", name="Filtros de búsqueda de eventos").is_visible():
+                if marco.get_by_role(
+                    "heading", name="Filtros de búsqueda de eventos"
+                ).is_visible():
                     return marco
             except PlaywrightError:
                 if not marco.is_detached():
@@ -141,19 +162,34 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
             (elemento.tagName === 'BUTTON' && /Business Network/i.test(elemento.textContent))))""",
         timeout=60000,
     )
-    dashboard = pagina.get_by_role("button", name=re.compile("Business Network", re.I)).first
+    dashboard = pagina.get_by_role(
+        "button", name=re.compile("Business Network", re.I)
+    ).first
     contrasena = pagina.locator('input[type="password"]:visible').first
-    campo_usuario = pagina.locator('input[type="text"]:visible, input[type="email"]:visible, input:not([type]):visible').first
-    if contrasena.is_visible() or campo_usuario.is_visible() and not dashboard.is_visible() or pagina.locator('#userid:visible').count():
+    campo_usuario = pagina.locator(
+        'input[type="text"]:visible, input[type="email"]:visible, input:not([type]):visible'
+    ).first
+    if (
+        contrasena.is_visible()
+        or campo_usuario.is_visible()
+        and not dashboard.is_visible()
+        or pagina.locator("#userid:visible").count()
+    ):
         print("Ariba: autenticando sesión.", flush=True)
         if not usuario or not clave:
-            raise RuntimeError("La sesión ha expirado y no hay credenciales configuradas")
+            raise RuntimeError(
+                "La sesión ha expirado y no hay credenciales configuradas"
+            )
         if campo_usuario.is_visible():
             if not url_ariba(pagina.url):
                 raise ValueError("No se introducirá el usuario fuera de Ariba")
             campo_usuario.fill(usuario)
         if not contrasena.is_visible():
-            siguiente = pagina.get_by_role("link", name=re.compile(r"siguiente|next", re.I)).or_(pagina.get_by_role("button", name=re.compile(r"siguiente|next", re.I)))
+            siguiente = pagina.get_by_role(
+                "link", name=re.compile(r"siguiente|next", re.I)
+            ).or_(
+                pagina.get_by_role("button", name=re.compile(r"siguiente|next", re.I))
+            )
             siguiente.first.click()
             pagina.wait_for_function(
                 """() => [...document.querySelectorAll('input[type=password]')].some(elemento => elemento.getClientRects().length > 0) ||
@@ -165,27 +201,38 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
             if not url_ariba(pagina.url):
                 raise ValueError("No se introducirá la clave fuera de Ariba")
             contrasena.fill(clave)
-            enlace_ingreso = pagina.get_by_role("link", name=re.compile(r"conectarse|iniciar sesión|sign in", re.I))
-            boton_ingreso = pagina.get_by_role("button", name=re.compile(r"conectarse|iniciar sesión|login|sign in", re.I))
+            enlace_ingreso = pagina.get_by_role(
+                "link", name=re.compile(r"conectarse|iniciar sesión|sign in", re.I)
+            )
+            boton_ingreso = pagina.get_by_role(
+                "button",
+                name=re.compile(r"conectarse|iniciar sesión|login|sign in", re.I),
+            )
             if enlace_ingreso.count():
                 enlace_ingreso.first.click()
             elif boton_ingreso.count():
                 boton_ingreso.first.click()
             else:
-                raise RuntimeError("No se encontró el control para iniciar sesión en Ariba")
+                raise RuntimeError(
+                    "No se encontró el control para iniciar sesión en Ariba"
+                )
     dashboard.wait_for(timeout=60000)
-    if contrasena.is_visible() or pagina.locator('#userid:visible').count():
+    if contrasena.is_visible() or pagina.locator("#userid:visible").count():
         raise RuntimeError("No se pudo completar el inicio de sesión en Ariba")
     print("Ariba: sesión iniciada.", flush=True)
 
 
 def seleccionar_codelco(pagina) -> None:
     print("Ariba: abriendo propuestas y seleccionando Codelco.", flush=True)
-    pagina.get_by_role("button", name=re.compile("Business Network", re.I)).first.click()
+    pagina.get_by_role(
+        "button", name=re.compile("Business Network", re.I)
+    ).first.click()
     pagina.get_by_role("menuitem", name="Ariba Proposals & Questionnaires").click()
     pagina.get_by_role("link", name="Más...").wait_for(timeout=60000)
     pagina.get_by_role("link", name="Más...").click()
-    pagina.get_by_role("link", name="Corporación Nacional del Cobre (Ambiente Productivo)").click()
+    pagina.get_by_role(
+        "link", name="Corporación Nacional del Cobre (Ambiente Productivo)"
+    ).click()
     esperar_marco_eventos(pagina)
     print("Ariba: tabla de eventos disponible.", flush=True)
 
@@ -197,7 +244,13 @@ def exportar_eventos(pagina, destino: Path) -> None:
     fila = marco.locator("tr").filter(has=etiqueta).last
     selector = fila.get_by_role("combobox")
     valor = selector.get_by_role("textbox").first
-    estado = lambda: valor.evaluate("elemento => elemento.tagName === 'INPUT' ? elemento.value : elemento.textContent").strip().casefold()
+    estado = (
+        lambda: valor.evaluate(
+            "elemento => elemento.tagName === 'INPUT' ? elemento.value : elemento.textContent"
+        )
+        .strip()
+        .casefold()
+    )
     if estado() != "abierto":
         selector.click()
         marco.get_by_role("option", name="Abierto", exact=True).click()
@@ -215,7 +268,9 @@ def exportar_eventos(pagina, destino: Path) -> None:
             break
         except PlaywrightTimeoutError:
             if intento == 2:
-                raise ServicioTemporalError("No se pudo abrir el menú de exportación de eventos")
+                raise ServicioTemporalError(
+                    "No se pudo abrir el menú de exportación de eventos"
+                )
     print("Ariba: descargando exportación de eventos.", flush=True)
     with pagina.expect_download(timeout=60000) as descarga:
         exportar.click()
@@ -240,7 +295,9 @@ def descargar_evento(pagina, evento, carpeta: Path) -> tuple[Path | None, str | 
     boton.wait_for(timeout=60000)
     if not url_ariba(pagina.url):
         raise ValueError("El detalle redirigió a un sitio no autorizado")
-    encabezado = pagina.get_by_text(re.compile(rf"^{re.escape(evento.identificador)}\s*-"))
+    encabezado = pagina.get_by_text(
+        re.compile(rf"^{re.escape(evento.identificador)}\s*-")
+    )
     encabezado.first.wait_for(timeout=30000)
     with tempfile.TemporaryDirectory(dir=carpeta) as directorio:
         temporal = Path(directorio) / "evento.descarga"
@@ -249,11 +306,16 @@ def descargar_evento(pagina, evento, carpeta: Path) -> tuple[Path | None, str | 
         fecha = fecha_vencimiento(temporal)
         if fecha is None:
             return None, f"{evento.identificador}: sin fecha de vencimiento; excluida"
-        print(f"{evento.identificador}: documento recibido y fecha verificada.", flush=True)
+        print(
+            f"{evento.identificador}: documento recibido y fecha verificada.",
+            flush=True,
+        )
         destino = carpeta / nombre_documento(fecha, evento.identificador, evento.titulo)
         if destino.exists():
             if destino.read_bytes() != temporal.read_bytes():
-                raise FileExistsError(f"Ya existe un documento diferente: {destino.name}")
+                raise FileExistsError(
+                    f"Ya existe un documento diferente: {destino.name}"
+                )
             return destino, None
         temporal.rename(destino)
         return destino, None
@@ -276,7 +338,11 @@ def detalle_fallo(error: Exception) -> str:
     texto = str(error)
     operacion = re.match(r"([A-Za-z]+\.[A-Za-z_]+):", texto)
     estado_http = re.search(r"\bHTTP (?:429|5\d\d)\b", texto)
-    detalle = operacion.group(1) if operacion else estado_http.group(0) if estado_http else "sin detalle adicional"
+    detalle = (
+        operacion.group(1)
+        if operacion
+        else estado_http.group(0) if estado_http else "sin detalle adicional"
+    )
     return f"{type(error).__name__}: {detalle}"
 
 
@@ -291,7 +357,10 @@ def reintentar_navegacion(accion, descripcion: str, recuperar_sesion=None, pagin
         except (PlaywrightError, TimeoutError, SesionExpiradaError) as error:
             comprobar_pagina(pagina)
             intento += 1
-            print(f"{descripcion}: {detalle_fallo(error)}; nuevo intento en {espera} segundos.", flush=True)
+            print(
+                f"{descripcion}: {detalle_fallo(error)}; nuevo intento en {espera} segundos.",
+                flush=True,
+            )
             time.sleep(espera)
             espera = min(espera * 2, 300)
 
@@ -305,8 +374,13 @@ def descargar_con_reintentos(pagina, evento, carpeta: Path, recuperar_sesion=Non
         except (PlaywrightError, TimeoutError, SesionExpiradaError) as error:
             comprobar_pagina(pagina)
             if intento == 3 or recuperar_sesion is None:
-                raise DescargaPendienteError(f"No se pudo procesar {evento.identificador}; queda pendiente para otra ronda") from error
-            print(f"Fallo de navegación en {evento.identificador} ({detalle_fallo(error)}); reintentando ({intento + 1}/3).", flush=True)
+                raise DescargaPendienteError(
+                    f"No se pudo procesar {evento.identificador}; queda pendiente para otra ronda"
+                ) from error
+            print(
+                f"Fallo de navegación en {evento.identificador} ({detalle_fallo(error)}); reintentando ({intento + 1}/3).",
+                flush=True,
+            )
 
 
 def configurar_credenciales() -> None:
