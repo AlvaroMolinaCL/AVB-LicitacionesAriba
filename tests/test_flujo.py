@@ -19,6 +19,61 @@ from src import ariba, archivos, consolidado, ejecucion as modulo_ejecucion
 
 
 class PruebasFlujo(unittest.TestCase):
+    def test_primera_ejecucion_se_reanuda_y_conserva_exclusiones(self):
+        contenido = """<div class="tableHead"><table><tr><th>Título</th><th>ID</th><th>Hora de finalización</th><th>Estado</th><th>Tipo de evento</th></tr></table></div><table class="tableBody"><tr><td><a href="https://s3.ariba.com/1">6001</a></td><td>Doc1</td><td></td><td>Abierto</td><td>RFP</td></tr><tr><td><a href="https://s3.ariba.com/2">6002</a></td><td>Doc2</td><td></td><td>Abierto</td><td>RFP</td></tr><tr><td><a href="https://s3.ariba.com/3">IMCSPOT prueba</a></td><td>Doc3</td><td></td><td>Abierto</td><td>RFP</td></tr></table>"""
+        with tempfile.TemporaryDirectory() as carpeta:
+            raiz = Path(carpeta)
+            orden = []
+
+            def descargar(pagina, evento, destino, recuperar):
+                orden.append(evento.identificador)
+                if evento.identificador == "Doc2":
+                    if orden.count("Doc2") == 1:
+                        raise RuntimeError("interrupción simulada")
+                    return None, "Doc2: sin fecha de vencimiento; excluida"
+                documento = destino / "Doc1.doc"
+                documento.write_text("<html></html>", encoding="utf-8")
+                return documento, None
+
+            with patch.object(modulo_ejecucion, "BASE", raiz), patch.object(
+                modulo_ejecucion,
+                "exportar_eventos",
+                side_effect=lambda pagina, destino: destino.write_text(
+                    contenido, encoding="utf-8"
+                ),
+            ) as exportar, patch.object(
+                modulo_ejecucion, "descargar_con_reintentos", side_effect=descargar
+            ):
+                with self.assertRaisesRegex(RuntimeError, "interrupción simulada"):
+                    modulo_ejecucion.procesar_ejecucion(None, raiz, date(2026, 11, 11))
+                modulo_ejecucion.procesar_ejecucion(None, raiz, date(2026, 11, 11))
+
+            estado_path = raiz / ".datos" / "ejecuciones" / "2026-11-11" / "estado.json"
+            estado = json.loads(estado_path.read_text(encoding="utf-8"))
+            self.assertIsNone(estado["anterior"])
+            self.assertIsNone(estado["hash_anterior"])
+            self.assertTrue(estado["completado"])
+            self.assertEqual(orden, ["Doc1", "Doc2", "Doc2"])
+            self.assertEqual(estado["eventos"]["Doc1"]["estado"], "descargado")
+            self.assertEqual(estado["eventos"]["Doc2"]["estado"], "excluido")
+            self.assertEqual(estado["eventos"]["Doc3"]["estado"], "excluido")
+            exportar.assert_called_once()
+            reporte = (
+                raiz
+                / "reportes_diarios"
+                / "2026-11-11_Licitaciones_Codelco_(Ariba).xlsx"
+            )
+            self.assertEqual(
+                modulo_ejecucion.leer_ids_anteriores(reporte), ["Doc1", "Doc2", "Doc3"]
+            )
+            self.assertTrue(
+                (
+                    raiz
+                    / "resumen_licitaciones"
+                    / "2026-11-11_Resumen_Licitaciones_Codelco.xlsx"
+                ).exists()
+            )
+
     def test_validacion_reintenta_exportacion_y_elimina_descarga_parcial(self):
         pagina = Mock()
         pagina.is_closed.return_value = False

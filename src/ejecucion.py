@@ -167,8 +167,14 @@ def preparar_ejecucion(
                 f"Ya existe el reporte de hoy; no se sobrescribirá: {destino}"
             )
     anterior = buscar_reporte_anterior(reportes, hoy)
-    print(f"Comparando con reporte anterior: {anterior.name}.", flush=True)
-    anteriores = leer_ids_anteriores(anterior)
+    if anterior is None:
+        print(
+            "Sin reporte anterior: todos los eventos se consideran nuevos.", flush=True
+        )
+        anteriores = []
+    else:
+        print(f"Comparando con reporte anterior: {anterior.name}.", flush=True)
+        anteriores = leer_ids_anteriores(anterior)
     exportacion = carpeta / "exportacion.xls"
     if exportacion.exists():
         raise FileExistsError(
@@ -217,8 +223,8 @@ def preparar_ejecucion(
     estado = {
         "fecha": hoy.isoformat(),
         "raiz": str(raiz.resolve()),
-        "anterior": str(anterior.resolve()),
-        "hash_anterior": hash_archivo(anterior),
+        "anterior": str(anterior.resolve()) if anterior else None,
+        "hash_anterior": hash_archivo(anterior) if anterior else None,
         "hash_exportacion": hash_archivo(exportacion),
         "eventos": {evento.identificador: {"estado": "pendiente"} for evento in nuevos},
         "completado": False,
@@ -252,14 +258,13 @@ def procesar_ejecucion(
         else:
             print("La ejecución de hoy ya terminó; no se procesará nuevamente.")
         return
-    anterior = Path(estado["anterior"])
+    anterior = Path(estado["anterior"]) if estado["anterior"] is not None else None
     exportacion = carpeta / "exportacion.xls"
     if (
-        hash_archivo(anterior) != estado["hash_anterior"]
-        or hash_archivo(exportacion) != estado["hash_exportacion"]
-    ):
+        anterior is not None and hash_archivo(anterior) != estado["hash_anterior"]
+    ) or hash_archivo(exportacion) != estado["hash_exportacion"]:
         raise ValueError("Los datos de referencia cambiaron durante la ejecución")
-    anteriores = leer_ids_anteriores(anterior)
+    anteriores = leer_ids_anteriores(anterior) if anterior is not None else []
     eventos = leer_exportacion(exportacion)
     nuevos = eventos_nuevos(eventos, anteriores)
     if set(estado["eventos"]) != {evento.identificador for evento in nuevos}:

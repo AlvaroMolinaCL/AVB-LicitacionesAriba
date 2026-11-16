@@ -104,7 +104,7 @@ def eventos_nuevos(eventos: list[Evento], anteriores: list[str]) -> list[Evento]
     return [evento for evento in eventos if evento.identificador not in conocidos]
 
 
-def buscar_reporte_anterior(carpeta: Path, hoy: date) -> Path:
+def buscar_reporte_anterior(carpeta: Path, hoy: date) -> Path | None:
     candidatos = []
     for ruta in carpeta.glob("*.xlsx"):
         nuevo = re.fullmatch(
@@ -133,7 +133,7 @@ def buscar_reporte_anterior(carpeta: Path, hoy: date) -> Path:
                 candidatos.append((fecha, ruta))
                 break
     if not candidatos:
-        raise FileNotFoundError("No se encontró un reporte anterior para comparar")
+        return None
     fecha_mas_reciente = max(fecha for fecha, _ in candidatos)
     ultimos = [ruta for fecha, ruta in candidatos if fecha == fecha_mas_reciente]
     if len(ultimos) != 1:
