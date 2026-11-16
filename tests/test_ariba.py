@@ -14,11 +14,22 @@ from src.ariba import (
     es_impresion,
     fecha_vencimiento,
     nombre_documento,
+    seleccionar_codelco,
     url_ariba,
 )
 
 
 class PruebasAriba(unittest.TestCase):
+    def test_seleccion_informa_el_paso_que_agota_el_tiempo(self):
+        pagina = Mock()
+        pagina.get_by_role.return_value.wait_for.side_effect = TimeoutError()
+        with patch("builtins.print") as imprimir:
+            with self.assertRaises(TimeoutError):
+                seleccionar_codelco(pagina)
+        mensajes = [llamada.args[0] for llamada in imprimir.call_args_list]
+        self.assertIn("Ariba: esperando la lista de clientes.", mensajes)
+        self.assertNotIn("Ariba: seleccionando Codelco.", mensajes)
+
     def test_descarga_parcial_no_bloquea_el_siguiente_intento(self):
         pagina = Mock(url="https://s3.ariba.com/evento")
         pagina.goto.return_value = None

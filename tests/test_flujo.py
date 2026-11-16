@@ -19,6 +19,37 @@ from src import ariba, archivos, consolidado, ejecucion as modulo_ejecucion
 
 
 class PruebasFlujo(unittest.TestCase):
+    def test_validacion_reintenta_exportacion_y_elimina_descarga_parcial(self):
+        pagina = Mock()
+        pagina.is_closed.return_value = False
+        contexto = Mock(pages=[pagina])
+        playwright = Mock()
+        playwright.chromium.launch_persistent_context.return_value = contexto
+        intentos = []
+
+        def exportar(pagina, destino):
+            intentos.append(destino.exists())
+            destino.write_text("datos", encoding="utf-8")
+            if len(intentos) == 1:
+                raise PlaywrightTimeoutError("Locator.click: timeout")
+
+        with tempfile.TemporaryDirectory() as carpeta, patch.object(
+            modulo_ejecucion, "bloqueo_ejecucion", return_value=nullcontext()
+        ), patch("playwright.sync_api.sync_playwright", return_value=nullcontext(playwright)), patch(
+            "keyring.get_password", return_value="valor-ficticio"
+        ), patch.object(modulo_ejecucion, "iniciar_sesion") as login, patch.object(
+            modulo_ejecucion, "exportar_eventos", side_effect=exportar
+        ), patch.object(modulo_ejecucion, "leer_exportacion", return_value=[]), patch.object(
+            modulo_ejecucion.time, "sleep"
+        ) as esperar:
+            resultado = modulo_ejecucion.ejecutar_flujo_principal(
+                Path(carpeta), "servicio", Path(carpeta), None, False, True, True
+            )
+        self.assertEqual(resultado, 0)
+        self.assertEqual(intentos, [False, False])
+        self.assertEqual(login.call_count, 2)
+        esperar.assert_called_once_with(30)
+
     @unittest.skipUnless(os.name == "nt", "Requiere Windows")
     def test_salida_redirigida_usa_utf8_aunque_el_entorno_indique_cp1252(self):
         ruta = Path(__file__).resolve().parent.parent / "principal.py"
@@ -483,7 +514,8 @@ class PruebasFlujo(unittest.TestCase):
                 / "2026-11-11_Documentos_Licitaciones_Codelco.zip"
             )
             with zipfile.ZipFile(zip_documentos) as archivo:
-                self.assertEqual(archivo.namelist(), ["12-11 Doc1 - 6001.doc"])
+                self.assertEqual(archivo.namelist(), ["12-11 Doc1 - 6001.pdf"])
+                self.assertTrue(archivo.read("12-11 Doc1 - 6001.pdf").startswith(b"%PDF-"))
             self.assertFalse((raiz / "Descargas").exists())
             resumen = (
                 raiz

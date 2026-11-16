@@ -12,7 +12,7 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-URL_INICIO = "https://service.ariba.com/Authenticator.aw/ad/ssoIDP"
+URL_INICIO = "https://service.ariba.com/Sourcing.aw/109582009/aw?awh=r&awssk=DbtYXejP&dard=1#b0"
 SERVICIO = "AVB-LicitacionesAriba"
 
 
@@ -155,16 +155,14 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
     if not url_ariba(pagina.url):
         raise ValueError("Ariba redirigió a un sitio no autorizado")
     pagina.wait_for_function(
-        """() => [...document.querySelectorAll('button, input')].some(elemento =>
+        """() => [...document.querySelectorAll('a, button, input')].some(elemento =>
             elemento.getClientRects().length > 0 &&
             (elemento.type === 'password' || (elemento.tagName === 'INPUT' &&
             ['text', 'email'].includes(elemento.type)) ||
-            (elemento.tagName === 'BUTTON' && /Business Network/i.test(elemento.textContent))))""",
+            (elemento.tagName === 'A' && elemento.textContent.trim() === 'Más...')))""",
         timeout=60000,
     )
-    dashboard = pagina.get_by_role(
-        "button", name=re.compile("Business Network", re.I)
-    ).first
+    dashboard = pagina.get_by_role("link", name="Más...", exact=True).first
     contrasena = pagina.locator('input[type="password"]:visible').first
     campo_usuario = pagina.locator(
         'input[type="text"]:visible, input[type="email"]:visible, input:not([type]):visible'
@@ -194,7 +192,7 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
             pagina.wait_for_function(
                 """() => [...document.querySelectorAll('input[type=password]')].some(elemento => elemento.getClientRects().length > 0) ||
                     (![...document.querySelectorAll('#userid')].some(elemento => elemento.getClientRects().length > 0) &&
-                    [...document.querySelectorAll('button')].some(elemento => elemento.getClientRects().length > 0 && /Business Network/i.test(elemento.textContent)))""",
+                    [...document.querySelectorAll('a')].some(elemento => elemento.getClientRects().length > 0 && elemento.textContent.trim() === 'Más...'))""",
                 timeout=60000,
             )
         if contrasena.is_visible():
@@ -202,11 +200,11 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
                 raise ValueError("No se introducirá la clave fuera de Ariba")
             contrasena.fill(clave)
             enlace_ingreso = pagina.get_by_role(
-                "link", name=re.compile(r"conectarse|iniciar sesión|sign in", re.I)
+                "link", name=re.compile(r"conectarse|iniciar sesión|inicio de sesión|sign in", re.I)
             )
             boton_ingreso = pagina.get_by_role(
                 "button",
-                name=re.compile(r"conectarse|iniciar sesión|login|sign in", re.I),
+                name=re.compile(r"conectarse|iniciar sesión|inicio de sesión|login|sign in", re.I),
             )
             if enlace_ingreso.count():
                 enlace_ingreso.first.click()
@@ -224,15 +222,14 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
 
 def seleccionar_codelco(pagina) -> None:
     print("Ariba: abriendo propuestas y seleccionando Codelco.", flush=True)
-    pagina.get_by_role(
-        "button", name=re.compile("Business Network", re.I)
-    ).first.click()
-    pagina.get_by_role("menuitem", name="Ariba Proposals & Questionnaires").click()
+    print("Ariba: esperando la lista de clientes.", flush=True)
     pagina.get_by_role("link", name="Más...").wait_for(timeout=60000)
     pagina.get_by_role("link", name="Más...").click()
+    print("Ariba: seleccionando Codelco.", flush=True)
     pagina.get_by_role(
         "link", name="Corporación Nacional del Cobre (Ambiente Productivo)"
     ).click()
+    print("Ariba: esperando el panel de eventos de Codelco.", flush=True)
     esperar_marco_eventos(pagina)
     print("Ariba: tabla de eventos disponible.", flush=True)
 
@@ -252,8 +249,19 @@ def exportar_eventos(pagina, destino: Path) -> None:
         .casefold()
     )
     if estado() != "abierto":
-        selector.click()
-        marco.get_by_role("option", name="Abierto", exact=True).click()
+        opcion_abierto = marco.get_by_role("option", name="Abierto", exact=True)
+        for intento in range(3):
+            if not opcion_abierto.is_visible():
+                selector.click()
+            try:
+                opcion_abierto.wait_for(state="visible", timeout=2000)
+                opcion_abierto.click()
+                break
+            except PlaywrightTimeoutError:
+                if intento == 2:
+                    raise ServicioTemporalError(
+                        "No se pudo seleccionar el filtro Abierto"
+                    )
     if estado() != "abierto":
         raise ValueError("No fue posible verificar el filtro Abierto")
     print("Ariba: buscando eventos abiertos y preparando exportación.", flush=True)

@@ -5,6 +5,7 @@ import shutil
 import sys
 import tempfile
 import time
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from src.archivos import (
     hash_archivo,
 )
 from src.consolidado import generar_consolidado, validar_formato_resumen
+from src.pdf import convertir_documentos_pdf
 from src.correo import (
     enviar_correo_con_reintentos,
     configurar_correo_interactivo_si_falta,
@@ -101,13 +103,26 @@ def preparar_zip_ejecucion(
             raise ValueError(f"El documento cambió desde su descarga: {nombre}")
         documentos.append(documento)
     destino = carpeta / f"{fecha.isoformat()}_Documentos_Licitaciones_Codelco.zip"
+
+    def generar_zip(ruta: Path) -> None:
+        with tempfile.TemporaryDirectory(dir=ruta.parent) as temporal:
+            pdfs = convertir_documentos_pdf(documentos, Path(temporal))
+            crear_zip_documentos(ruta, pdfs)
+
     asegurar_resultado(
         destino,
         "hash_zip",
-        lambda ruta: crear_zip_documentos(ruta, documentos),
+        generar_zip,
         estado,
         estado_path,
     )
+    with zipfile.ZipFile(destino) as archivo:
+        nombres = archivo.namelist()
+        if len(nombres) != len(documentos) or any(
+            nombre not in {documento.name, documento.with_suffix(".pdf").name}
+            for nombre, documento in zip(nombres, documentos)
+        ) or len({nombre.casefold() for nombre in nombres}) != len(nombres):
+            raise ValueError("El ZIP existente no contiene los documentos esperados; requiere revisión")
     return destino
 
 
@@ -175,7 +190,9 @@ def preparar_ejecucion(
                     ) from error
                 if intento % 3 == 0:
                     print(
-                        f"Fallo al exportar eventos ({detalle_fallo(error)}); nuevo intento en {espera} segundos.",
+                        f"Fallo al exportar eventos ({detalle_fallo(error)}); intento {intento}. "
+                        f"El reporte y el correo siguen pendientes; nuevo intento en {espera} segundos. "
+                        "Revise el último paso de Ariba indicado arriba; la causa aún no está confirmada.",
                         flush=True,
                     )
                     time.sleep(espera)
@@ -465,9 +482,20 @@ def ejecutar_flujo_principal(
                 if validar_ariba:
                     with tempfile.TemporaryDirectory(dir=base / ".datos") as temporal:
                         exportacion = Path(temporal) / "exportacion.xls"
-                        exportar_eventos(pagina, exportacion)
+
+                        def validar_exportacion():
+                            exportacion.unlink(missing_ok=True)
+                            exportar_eventos(pagina, exportacion)
+                            return leer_exportacion(exportacion)
+
+                        eventos = reintentar_navegacion(
+                            validar_exportacion,
+                            "Validación de exportación",
+                            lambda: iniciar_sesion(pagina, usuario, clave),
+                            pagina,
+                        )
                         print(
-                            f"Conexión y exportación verificadas: {len(leer_exportacion(exportacion))} eventos abiertos."
+                            f"Conexión y exportación verificadas: {len(eventos)} eventos abiertos."
                         )
                 else:
 

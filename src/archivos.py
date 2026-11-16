@@ -35,9 +35,9 @@ def copiar_sin_sobrescribir(origen: Path, destino: Path) -> None:
 
 def crear_zip_documentos(destino: Path, documentos: list[Path]) -> None:
     if not documentos or any(
-        documento.suffix.casefold() != ".doc" for documento in documentos
+        documento.suffix.casefold() not in {".pdf", ".doc"} for documento in documentos
     ):
-        raise ValueError("El ZIP requiere documentos Word de la ejecución")
+        raise ValueError("El ZIP requiere documentos PDF o Word de la ejecución")
     if len({documento.name.casefold() for documento in documentos}) != len(documentos):
         raise ValueError("Hay documentos con nombres duplicados para el ZIP")
     with zipfile.ZipFile(destino, "x", compression=zipfile.ZIP_DEFLATED) as archivo:

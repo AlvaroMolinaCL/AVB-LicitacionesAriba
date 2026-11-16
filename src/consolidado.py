@@ -203,6 +203,9 @@ def generar_consolidado(
                 indice_formato = (2 if es_sr else 0) + int(alternancia[es_sr])
                 formato = formatos[indice_formato]
                 for columna, nombre in enumerate(COLUMNAS):
+                    valor = str(fila[nombre])
+                    if nombre == "Licitación" and valor.lower().endswith(".doc"):
+                        valor = valor[:-4]
                     if nombre == "Licitación" and evento is not None:
                         if (
                             hoja.write_url(
@@ -210,7 +213,7 @@ def generar_consolidado(
                                 columna,
                                 evento.enlace,
                                 formato,
-                                string=fila[nombre],
+                                string=valor,
                             )
                             != 0
                         ):
@@ -228,7 +231,6 @@ def generar_consolidado(
                             formatos_fecha[indice_formato],
                         )
                         continue
-                    valor = str(fila[nombre])
                     hoja.write_string(
                         numero,
                         columna,

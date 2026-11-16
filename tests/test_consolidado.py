@@ -41,11 +41,11 @@ class PruebasConsolidado(unittest.TestCase):
             self.assertEqual(hoja["F3"].value, "N/A")
             self.assertEqual(
                 (hoja["A2"].value, hoja["A2"].hyperlink.target),
-                ("Doc1.doc", "https://s3.ariba.com/evento1"),
+                ("Doc1", "https://s3.ariba.com/evento1"),
             )
             self.assertEqual(
                 (hoja["A3"].value, hoja["A3"].hyperlink.target),
-                ("Doc2.doc", "https://s3.ariba.com/evento2"),
+                ("Doc2", "https://s3.ariba.com/evento2"),
             )
             libro.close()
             with self.assertRaisesRegex(ValueError, "Faltan datos"):
@@ -132,8 +132,12 @@ class PruebasConsolidado(unittest.TestCase):
             destino = carpeta / "resumen.xlsx"
             self.assertEqual(generar_consolidado(destino, [(documento, False)]), 2)
             generado = load_workbook(destino, read_only=True, data_only=True)
-            self.assertEqual(list(generado.active.values), [COLUMNAS, *esperadas])
+            filas_excel = list(generado.active.values)
             generado.close()
+            self.assertEqual(
+                filas_excel,
+                [COLUMNAS, *((Path(fila[0]).stem, *fila[1:]) for fila in esperadas)],
+            )
 
     def test_documento_sin_items_se_marca_para_revision(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -283,7 +287,7 @@ class PruebasConsolidado(unittest.TestCase):
                 [
                     COLUMNAS,
                     *[
-                        tuple(fila[columna] for columna in COLUMNAS)
+                        (Path(fila["Licitación"]).stem, *(fila[columna] for columna in COLUMNAS[1:]))
                         for grupo in (sct, sr, rfp, adjuntos)
                         for fila in grupo
                     ],

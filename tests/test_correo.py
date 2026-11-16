@@ -9,7 +9,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from openpyxl import Workbook
+from playwright.sync_api import Error as PlaywrightError, sync_playwright
 from src import archivos, correo, ejecucion as modulo_ejecucion
+from src.pdf import convertir_documentos_pdf
 from src.correo import (
     conectar_correo,
     crear_mensaje,
@@ -20,6 +22,15 @@ import principal
 
 
 class PruebasCorreo(unittest.TestCase):
+    def test_conversion_con_playwright_activo(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            carpeta = Path(carpeta)
+            documento = carpeta / "evento.doc"
+            documento.write_text("<html>Prueba</html>", encoding="utf-8")
+            with sync_playwright():
+                pdf = convertir_documentos_pdf([documento], carpeta)[0]
+            self.assertTrue(pdf.read_bytes().startswith(b"%PDF-"))
+
     def test_primera_ejecucion_interactiva_configura_datos_faltantes(self):
         with tempfile.TemporaryDirectory() as carpeta, patch.object(
             correo, "BASE", Path(carpeta)
@@ -205,21 +216,85 @@ class PruebasCorreo(unittest.TestCase):
     def test_zip_contiene_solo_los_documentos_indicados(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
-            primero = carpeta / "Doc1.doc"
-            segundo = carpeta / "Doc2.doc"
+            primero = carpeta / "Doc1.pdf"
+            segundo = carpeta / "Doc2.pdf"
             primero.write_bytes(b"documento uno")
             segundo.write_bytes(b"documento dos")
             (carpeta / "otro.doc").write_bytes(b"no incluido")
             destino = carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
             archivos.crear_zip_documentos(destino, [primero, segundo])
             with zipfile.ZipFile(destino) as archivo:
-                self.assertEqual(archivo.namelist(), ["Doc1.doc", "Doc2.doc"])
-                self.assertEqual(archivo.read("Doc1.doc"), b"documento uno")
-                self.assertEqual(archivo.read("Doc2.doc"), b"documento dos")
+                self.assertEqual(archivo.namelist(), ["Doc1.pdf", "Doc2.pdf"])
+                self.assertEqual(archivo.read("Doc1.pdf"), b"documento uno")
+                self.assertEqual(archivo.read("Doc2.pdf"), b"documento dos")
             with self.assertRaises(FileExistsError):
                 archivos.crear_zip_documentos(destino, [primero])
             with self.assertRaises(ValueError):
                 archivos.crear_zip_documentos(carpeta / "vacio.zip", [])
+            with self.assertRaises(ValueError):
+                archivos.crear_zip_documentos(carpeta / "invalido.zip", [carpeta / "otro.txt"])
+
+    def test_fallo_conversion_no_crea_zip(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            carpeta = Path(carpeta)
+            documento = carpeta / "evento.doc"
+            documento.write_text("<html>documento</html>", encoding="utf-8")
+            estado = {"eventos": {"Doc1": {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}}}
+            with patch.object(modulo_ejecucion, "convertir_documentos_pdf", side_effect=RuntimeError("fallo de conversión")):
+                with self.assertRaisesRegex(RuntimeError, "fallo de conversión"):
+                    modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json")
+            self.assertFalse((carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists())
+            self.assertNotIn("hash_zip", estado)
+
+    def test_acepta_zip_antiguo_con_word(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            carpeta = Path(carpeta)
+            documento = carpeta / "evento.doc"
+            documento.write_text("<html>documento</html>", encoding="utf-8")
+            destino = carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
+            with zipfile.ZipFile(destino, "w") as archivo:
+                archivo.write(documento, documento.name)
+            estado = {
+                "eventos": {"Doc1": {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}},
+                "hash_zip": archivos.hash_archivo(destino),
+            }
+            self.assertEqual(
+                modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"),
+                destino,
+            )
+
+    def test_zip_incluye_original_si_falla_conversion_de_un_documento(self):
+        with tempfile.TemporaryDirectory() as temporal:
+            carpeta = Path(temporal)
+            primero = carpeta / "primero.doc"
+            segundo = carpeta / "segundo.doc"
+            tercero = carpeta / "tercero.doc"
+            primero.write_text("<html>primero</html>", encoding="utf-8")
+            segundo.write_bytes(b"\xff documento sin UTF-8")
+            tercero.write_text("<html>tercero</html>", encoding="utf-8")
+            estado = {"eventos": {
+                documento.stem: {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}
+                for documento in (primero, segundo, tercero)
+            }}
+            destino = modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json")
+            with zipfile.ZipFile(destino) as archivo:
+                self.assertEqual(archivo.namelist(), ["primero.pdf", "segundo.doc", "tercero.pdf"])
+                self.assertTrue(archivo.read("primero.pdf").startswith(b"%PDF-"))
+                self.assertEqual(archivo.read("segundo.doc"), segundo.read_bytes())
+                self.assertTrue(archivo.read("tercero.pdf").startswith(b"%PDF-"))
+            self.assertEqual(modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"), destino)
+
+    def test_sin_navegador_zip_conserva_los_originales(self):
+        with tempfile.TemporaryDirectory() as temporal:
+            carpeta = Path(temporal)
+            documento = carpeta / "evento.doc"
+            documento.write_text("<html>evento</html>", encoding="utf-8")
+            estado = {"eventos": {"Doc1": {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}}}
+            with patch("src.pdf.sync_playwright", side_effect=PlaywrightError("navegador no disponible")):
+                destino = modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json")
+            with zipfile.ZipFile(destino) as archivo:
+                self.assertEqual(archivo.namelist(), ["evento.doc"])
+                self.assertEqual(archivo.read("evento.doc"), documento.read_bytes())
 
     def test_no_envia_si_el_zip_fue_modificado(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -389,7 +464,8 @@ class PruebasCorreo(unittest.TestCase):
                 / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
             )
             with zipfile.ZipFile(archivo_zip) as archivo:
-                self.assertEqual(archivo.namelist(), ["evento.doc"])
+                self.assertEqual(archivo.namelist(), ["evento.pdf"])
+                self.assertTrue(archivo.read("evento.pdf").startswith(b"%PDF-"))
 
     def test_prueba_manual_envia_resumen_existente_sin_ariba(self):
         with tempfile.TemporaryDirectory() as carpeta:
