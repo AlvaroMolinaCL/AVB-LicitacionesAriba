@@ -11,6 +11,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
 
+from src.actualizaciones import directorio_actual, publicar_actualizacion
 from src.ariba import (
     DescargaPendienteError,
     NavegadorCerradoError,
@@ -148,13 +149,31 @@ def preparar_ejecucion(
 ) -> tuple[dict, Path, Path]:
     carpeta = BASE / ".datos" / "ejecuciones" / hoy.isoformat()
     carpeta.mkdir(parents=True, exist_ok=True)
+    carpeta, estado_previo = directorio_actual(carpeta)
     estado_path = carpeta / "estado.json"
     if estado_path.exists():
         estado = json.loads(estado_path.read_text(encoding="utf-8"))
         if estado["raiz"] != str(raiz.resolve()):
             raise ValueError("La ejecución existente pertenece a otra carpeta de datos")
-        print(f"Ejecución {hoy.isoformat()}: recuperando estado guardado.", flush=True)
-        return estado, carpeta, estado_path
+        if not estado["completado"] or estado["eventos"] or "correo" in estado:
+            print(
+                f"Ejecución {hoy.isoformat()}: recuperando estado guardado.", flush=True
+            )
+            return estado, carpeta, estado_path
+        estado["actualizacion"] = "actualizacion"
+        guardar_estado(estado_path, estado)
+        estado_previo = estado
+        carpeta = carpeta / "actualizacion"
+        carpeta.mkdir(exist_ok=True)
+        estado_path = carpeta / "estado.json"
+        print(
+            "Sin eventos nuevos en la consulta anterior; actualizando exportación.",
+            flush=True,
+        )
+    elif estado_previo is not None:
+        if estado_previo["raiz"] != str(raiz.resolve()):
+            raise ValueError("La ejecución existente pertenece a otra carpeta de datos")
+        carpeta.mkdir(exist_ok=True)
 
     reportes = raiz / "reportes_diarios"
     for nombre in (
@@ -162,11 +181,25 @@ def preparar_ejecucion(
         f"LIC ARIBA {hoy:%d-%m}.xlsx",
     ):
         destino = reportes / nombre
-        if destino.exists():
+        if destino.exists() and not (
+            estado_previo is not None
+            and nombre == f"{hoy.isoformat()}_Licitaciones_Codelco_(Ariba).xlsx"
+            and hash_archivo(destino) == estado_previo["hash_reporte"]
+        ):
             raise FileExistsError(
                 f"Ya existe el reporte de hoy; no se sobrescribirá: {destino}"
             )
-    anterior = buscar_reporte_anterior(reportes, hoy)
+    anterior = (
+        Path(estado_previo["anterior"])
+        if estado_previo and estado_previo["anterior"]
+        else None if estado_previo else buscar_reporte_anterior(reportes, hoy)
+    )
+    if (
+        anterior is not None
+        and estado_previo
+        and hash_archivo(anterior) != estado_previo["hash_anterior"]
+    ):
+        raise ValueError("El reporte anterior cambió durante la ejecución")
     if anterior is None:
         print(
             "Sin reporte anterior: todos los eventos se consideran nuevos.", flush=True
@@ -229,6 +262,8 @@ def preparar_ejecucion(
         "eventos": {evento.identificador: {"estado": "pendiente"} for evento in nuevos},
         "completado": False,
     }
+    if estado_previo is not None:
+        estado["hash_reporte_previo"] = estado_previo["hash_reporte"]
     guardar_estado(estado_path, estado)
     return estado, carpeta, estado_path
 
@@ -380,7 +415,12 @@ def procesar_ejecucion(
         / "reportes_diarios"
         / f"{hoy.isoformat()}_Licitaciones_Codelco_(Ariba).xlsx"
     )
-    copiar_sin_sobrescribir(reporte_temporal, destino_reporte)
+    if "hash_reporte_previo" in estado:
+        publicar_actualizacion(
+            reporte_temporal, destino_reporte, estado["hash_reporte_previo"]
+        )
+    else:
+        copiar_sin_sobrescribir(reporte_temporal, destino_reporte)
     estado["completado"] = True
     if documentos and habilitar_correo:
         estado["correo"] = {
@@ -452,8 +492,10 @@ def ejecutar_flujo_principal(
         )
         if fecha and not estado_path.exists():
             raise FileNotFoundError("No existe una ejecución guardada para esa fecha")
-        if not validar_ariba and estado_path.exists():
-            estado = json.loads(estado_path.read_text(encoding="utf-8"))
+        carpeta_actual, _ = directorio_actual(estado_path.parent)
+        estado_actual_path = carpeta_actual / "estado.json"
+        if not validar_ariba and estado_actual_path.exists():
+            estado = json.loads(estado_actual_path.read_text(encoding="utf-8"))
             if estado.get("completado") and "correo" in estado:
                 if estado["raiz"] != str(raiz.resolve()):
                     raise ValueError(
@@ -465,10 +507,10 @@ def ejecutar_flujo_principal(
                     / f"{fecha_ejecucion.isoformat()}_Resumen_Licitaciones_Codelco.xlsx"
                 )
                 documentos_zip = preparar_zip_correo(
-                    fecha_ejecucion, estado, estado_path
+                    fecha_ejecucion, estado, estado_actual_path
                 )
                 enviar_correo_con_reintentos(
-                    resumen, fecha_ejecucion, estado, estado_path, documentos_zip
+                    resumen, fecha_ejecucion, estado, estado_actual_path, documentos_zip
                 )
                 return 0
         while True:
@@ -514,7 +556,7 @@ def ejecutar_flujo_principal(
                         iniciar_sesion(pagina, usuario, clave)
                         seleccionar_codelco(pagina)
 
-                    if estado_path.exists():
+                    if estado_actual_path.exists() and not estado["completado"]:
                         reintentar_navegacion(
                             lambda: seleccionar_codelco(pagina),
                             "Selección de Codelco",

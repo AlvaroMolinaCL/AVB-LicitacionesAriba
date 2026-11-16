@@ -19,6 +19,121 @@ from src import ariba, archivos, consolidado, ejecucion as modulo_ejecucion
 
 
 class PruebasFlujo(unittest.TestCase):
+    def test_segunda_consulta_no_selecciona_codelco_antes_de_exportar(self):
+        pagina = Mock()
+        contexto = Mock(pages=[pagina])
+        playwright = Mock()
+        playwright.chromium.launch_persistent_context.return_value = contexto
+        with tempfile.TemporaryDirectory() as carpeta:
+            raiz = Path(carpeta)
+            estado_path = raiz / ".datos" / "ejecuciones" / "2026-11-11" / "estado.json"
+            estado_path.parent.mkdir(parents=True)
+            estado_path.write_text(
+                json.dumps(
+                    {"raiz": str(raiz.resolve()), "completado": True, "eventos": {}}
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(
+                modulo_ejecucion, "bloqueo_ejecucion", return_value=nullcontext()
+            ), patch(
+                "playwright.sync_api.sync_playwright",
+                return_value=nullcontext(playwright),
+            ), patch(
+                "keyring.get_password", return_value="valor-ficticio"
+            ), patch.object(
+                modulo_ejecucion, "iniciar_sesion"
+            ), patch.object(
+                modulo_ejecucion, "seleccionar_codelco"
+            ) as seleccionar, patch.object(
+                modulo_ejecucion, "procesar_ejecucion"
+            ) as procesar:
+                self.assertEqual(
+                    modulo_ejecucion.ejecutar_flujo_principal(
+                        raiz, "servicio", raiz, date(2026, 11, 11), False, False, True
+                    ),
+                    0,
+                )
+            seleccionar.assert_not_called()
+            procesar.assert_called_once()
+
+    def test_actualizacion_no_sobrescribe_reporte_modificado(self):
+        from src.actualizaciones import publicar_actualizacion
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            origen = Path(carpeta) / "nuevo.xlsx"
+            destino = Path(carpeta) / "reporte.xlsx"
+            origen.write_bytes(b"nuevo")
+            destino.write_bytes(b"original")
+            hash_previo = archivos.hash_archivo(destino)
+            destino.write_bytes(b"modificado")
+            with self.assertRaisesRegex(ValueError, "cambió"):
+                publicar_actualizacion(origen, destino, hash_previo)
+            self.assertEqual(destino.read_bytes(), b"modificado")
+
+    def test_sin_novedades_se_vuelve_a_consultar_en_el_mismo_dia(self):
+        cabecera = '<div class="tableHead"><table><tr><th>Título</th><th>ID</th><th>Hora de finalización</th><th>Estado</th><th>Tipo de evento</th></tr></table></div>'
+        fila = '<tr><td><a href="https://s3.ariba.com/1">6001</a></td><td>Doc1</td><td></td><td>Abierto</td><td>RFP</td></tr>'
+        nueva = '<tr><td><a href="https://s3.ariba.com/2">6002</a></td><td>Doc2</td><td></td><td>Abierto</td><td>RFP</td></tr>'
+        with tempfile.TemporaryDirectory() as carpeta:
+            raiz = Path(carpeta)
+            reportes = raiz / "reportes_diarios"
+            reportes.mkdir()
+            libro = Workbook()
+            libro.active.append(["Título", "ID"])
+            libro.active.append(["Anterior", "Doc1"])
+            libro.save(reportes / "2026-11-10_Licitaciones_Codelco_(Ariba).xlsx")
+            libro.close()
+            exportaciones = iter(
+                [
+                    cabecera + '<table class="tableBody">' + fila + "</table>",
+                    cabecera + '<table class="tableBody">' + fila + nueva + "</table>",
+                ]
+            )
+
+            def exportar(pagina, destino):
+                destino.write_text(next(exportaciones), encoding="utf-8")
+
+            def descargar(pagina, evento, destino, recuperar):
+                if descargar.intentos == 0:
+                    descargar.intentos += 1
+                    raise RuntimeError("interrupción simulada")
+                documento = destino / "Doc2.doc"
+                documento.write_text("<html></html>", encoding="utf-8")
+                return documento, None
+
+            descargar.intentos = 0
+            with patch.object(modulo_ejecucion, "BASE", raiz), patch.object(
+                modulo_ejecucion, "exportar_eventos", side_effect=exportar
+            ) as exportacion, patch.object(
+                modulo_ejecucion, "descargar_con_reintentos", side_effect=descargar
+            ) as descarga:
+                modulo_ejecucion.procesar_ejecucion(None, raiz, date(2026, 11, 11))
+                with self.assertRaisesRegex(RuntimeError, "interrupción simulada"):
+                    modulo_ejecucion.procesar_ejecucion(None, raiz, date(2026, 11, 11))
+                self.assertEqual(
+                    modulo_ejecucion.leer_ids_anteriores(
+                        reportes / "2026-11-11_Licitaciones_Codelco_(Ariba).xlsx"
+                    ),
+                    ["Doc1"],
+                )
+                modulo_ejecucion.procesar_ejecucion(None, raiz, date(2026, 11, 11))
+            self.assertEqual(exportacion.call_count, 2)
+            self.assertEqual(descarga.call_args.args[1].identificador, "Doc2")
+            self.assertEqual(
+                modulo_ejecucion.leer_ids_anteriores(
+                    reportes / "2026-11-11_Licitaciones_Codelco_(Ariba).xlsx"
+                ),
+                ["Doc1", "Doc2"],
+            )
+            self.assertTrue(
+                (
+                    raiz
+                    / "resumen_licitaciones"
+                    / "2026-11-11_Resumen_Licitaciones_Codelco.xlsx"
+                ).exists()
+            )
+
     def test_primera_ejecucion_se_reanuda_y_conserva_exclusiones(self):
         contenido = """<div class="tableHead"><table><tr><th>Título</th><th>ID</th><th>Hora de finalización</th><th>Estado</th><th>Tipo de evento</th></tr></table></div><table class="tableBody"><tr><td><a href="https://s3.ariba.com/1">6001</a></td><td>Doc1</td><td></td><td>Abierto</td><td>RFP</td></tr><tr><td><a href="https://s3.ariba.com/2">6002</a></td><td>Doc2</td><td></td><td>Abierto</td><td>RFP</td></tr><tr><td><a href="https://s3.ariba.com/3">IMCSPOT prueba</a></td><td>Doc3</td><td></td><td>Abierto</td><td>RFP</td></tr></table>"""
         with tempfile.TemporaryDirectory() as carpeta:
