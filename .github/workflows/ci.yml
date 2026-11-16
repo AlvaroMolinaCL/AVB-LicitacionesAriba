@@ -38,7 +38,6 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
       - name: Instalar Chromium para pruebas de navegación
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\.datos\navegadores
         run: python -m playwright install chromium
@@ -46,6 +45,8 @@ jobs:
       - name: Ejecutar pruebas unitarias
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\.datos\navegadores
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
   compilar-ejecutable:
