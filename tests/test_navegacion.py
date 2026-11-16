@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 from playwright.sync_api import sync_playwright
 
-from src.ariba import descargar_evento, exportar_eventos, iniciar_sesion, seleccionar_codelco
+from src.ariba import (
+    descargar_evento,
+    exportar_eventos,
+    iniciar_sesion,
+    seleccionar_codelco,
+)
 
 LOGIN = """<html><body><p>Inicio de sesión de proveedor</p><input id="userid">
 <a href="#" onclick="document.querySelector('#password').hidden=false; this.hidden=true">Siguiente</a>
@@ -29,27 +34,36 @@ DOCUMENTO = """<!-- class: ariba.sourcing.rfxui.PrintRFXEncode --><html><table><
 class PruebasNavegacion(unittest.TestCase):
     def test_login_con_sesion_de_propuestas_existente(self):
         carpeta_programa = Path(__file__).resolve().parent.parent
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(carpeta_programa / ".datos" / "navegadores")
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+            carpeta_programa / ".datos" / "navegadores"
+        )
         with sync_playwright() as playwright:
             navegador = playwright.chromium.launch()
             pagina = navegador.new_page()
-            pagina.route("**/*", lambda ruta: ruta.fulfill(
-                status=200, content_type="text/html; charset=utf-8", body=SOURCING
-            ))
+            pagina.route(
+                "**/*",
+                lambda ruta: ruta.fulfill(
+                    status=200, content_type="text/html; charset=utf-8", body=SOURCING
+                ),
+            )
             iniciar_sesion(pagina, None, None)
             self.assertTrue(pagina.get_by_role("link", name="Más...").is_visible())
             navegador.close()
 
     def test_seleccion_directa_de_codelco(self):
         carpeta_programa = Path(__file__).resolve().parent.parent
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(carpeta_programa / ".datos" / "navegadores")
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+            carpeta_programa / ".datos" / "navegadores"
+        )
         with sync_playwright() as playwright:
             navegador = playwright.chromium.launch()
             pagina = navegador.new_page()
             pagina.set_default_timeout(1000)
-            pagina.set_content("""<a href="#" onclick="document.querySelector('#clientes').hidden=false">Más...</a>
+            pagina.set_content(
+                """<a href="#" onclick="document.querySelector('#clientes').hidden=false">Más...</a>
                 <div id="clientes" hidden>
-                <a href="#" onclick="this.dataset.seleccionado='si'">Corporación Nacional del Cobre (Ambiente Productivo)</a></div>""")
+                <a href="#" onclick="this.dataset.seleccionado='si'">Corporación Nacional del Cobre (Ambiente Productivo)</a></div>"""
+            )
             with patch("src.ariba.esperar_marco_eventos"):
                 seleccionar_codelco(pagina)
             self.assertEqual(pagina.locator("[data-seleccionado]").count(), 1)
@@ -69,7 +83,9 @@ class PruebasNavegacion(unittest.TestCase):
                     contenido = '<html><body><input id="userid"><a href="/Supplier.aw/panel">Siguiente</a></body></html>'
                 else:
                     contenido = DASHBOARD
-                ruta.fulfill(status=200, content_type="text/html; charset=utf-8", body=contenido)
+                ruta.fulfill(
+                    status=200, content_type="text/html; charset=utf-8", body=contenido
+                )
 
             pagina.route("**/*", respuesta)
             iniciar_sesion(pagina, "usuario@ejemplo.com", "clave-ficticia")
@@ -91,7 +107,9 @@ class PruebasNavegacion(unittest.TestCase):
                         <button onclick="if (document.querySelector('#usuario').value === 'usuario@ejemplo.com' && document.querySelector('#clave').value === 'clave-ficticia') location.href='/dashboard'">Inicio de sesión</button></body></html>"""
                 else:
                     contenido = DASHBOARD
-                ruta.fulfill(status=200, content_type="text/html; charset=utf-8", body=contenido)
+                ruta.fulfill(
+                    status=200, content_type="text/html; charset=utf-8", body=contenido
+                )
 
             pagina.route("**/*", respuesta)
             iniciar_sesion(pagina, "usuario@ejemplo.com", "clave-ficticia")

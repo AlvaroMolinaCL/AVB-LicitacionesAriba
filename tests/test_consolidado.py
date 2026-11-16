@@ -287,7 +287,10 @@ class PruebasConsolidado(unittest.TestCase):
                 [
                     COLUMNAS,
                     *[
-                        (Path(fila["Licitación"]).stem, *(fila[columna] for columna in COLUMNAS[1:]))
+                        (
+                            Path(fila["Licitación"]).stem,
+                            *(fila[columna] for columna in COLUMNAS[1:]),
+                        )
                         for grupo in (sct, sr, rfp, adjuntos)
                         for fila in grupo
                     ],

@@ -232,18 +232,36 @@ class PruebasCorreo(unittest.TestCase):
             with self.assertRaises(ValueError):
                 archivos.crear_zip_documentos(carpeta / "vacio.zip", [])
             with self.assertRaises(ValueError):
-                archivos.crear_zip_documentos(carpeta / "invalido.zip", [carpeta / "otro.txt"])
+                archivos.crear_zip_documentos(
+                    carpeta / "invalido.zip", [carpeta / "otro.txt"]
+                )
 
     def test_fallo_conversion_no_crea_zip(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
             documento = carpeta / "evento.doc"
             documento.write_text("<html>documento</html>", encoding="utf-8")
-            estado = {"eventos": {"Doc1": {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}}}
-            with patch.object(modulo_ejecucion, "convertir_documentos_pdf", side_effect=RuntimeError("fallo de conversión")):
+            estado = {
+                "eventos": {
+                    "Doc1": {
+                        "estado": "descargado",
+                        "archivo": documento.name,
+                        "sha256": archivos.hash_archivo(documento),
+                    }
+                }
+            }
+            with patch.object(
+                modulo_ejecucion,
+                "convertir_documentos_pdf",
+                side_effect=RuntimeError("fallo de conversión"),
+            ):
                 with self.assertRaisesRegex(RuntimeError, "fallo de conversión"):
-                    modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json")
-            self.assertFalse((carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists())
+                    modulo_ejecucion.preparar_zip_ejecucion(
+                        carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                    )
+            self.assertFalse(
+                (carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists()
+            )
             self.assertNotIn("hash_zip", estado)
 
     def test_acepta_zip_antiguo_con_word(self):
@@ -255,11 +273,19 @@ class PruebasCorreo(unittest.TestCase):
             with zipfile.ZipFile(destino, "w") as archivo:
                 archivo.write(documento, documento.name)
             estado = {
-                "eventos": {"Doc1": {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}},
+                "eventos": {
+                    "Doc1": {
+                        "estado": "descargado",
+                        "archivo": documento.name,
+                        "sha256": archivos.hash_archivo(documento),
+                    }
+                },
                 "hash_zip": archivos.hash_archivo(destino),
             }
             self.assertEqual(
-                modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"),
+                modulo_ejecucion.preparar_zip_ejecucion(
+                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                ),
                 destino,
             )
 
@@ -272,26 +298,54 @@ class PruebasCorreo(unittest.TestCase):
             primero.write_text("<html>primero</html>", encoding="utf-8")
             segundo.write_bytes(b"\xff documento sin UTF-8")
             tercero.write_text("<html>tercero</html>", encoding="utf-8")
-            estado = {"eventos": {
-                documento.stem: {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}
-                for documento in (primero, segundo, tercero)
-            }}
-            destino = modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json")
+            estado = {
+                "eventos": {
+                    documento.stem: {
+                        "estado": "descargado",
+                        "archivo": documento.name,
+                        "sha256": archivos.hash_archivo(documento),
+                    }
+                    for documento in (primero, segundo, tercero)
+                }
+            }
+            destino = modulo_ejecucion.preparar_zip_ejecucion(
+                carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+            )
             with zipfile.ZipFile(destino) as archivo:
-                self.assertEqual(archivo.namelist(), ["primero.pdf", "segundo.doc", "tercero.pdf"])
+                self.assertEqual(
+                    archivo.namelist(), ["primero.pdf", "segundo.doc", "tercero.pdf"]
+                )
                 self.assertTrue(archivo.read("primero.pdf").startswith(b"%PDF-"))
                 self.assertEqual(archivo.read("segundo.doc"), segundo.read_bytes())
                 self.assertTrue(archivo.read("tercero.pdf").startswith(b"%PDF-"))
-            self.assertEqual(modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"), destino)
+            self.assertEqual(
+                modulo_ejecucion.preparar_zip_ejecucion(
+                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                ),
+                destino,
+            )
 
     def test_sin_navegador_zip_conserva_los_originales(self):
         with tempfile.TemporaryDirectory() as temporal:
             carpeta = Path(temporal)
             documento = carpeta / "evento.doc"
             documento.write_text("<html>evento</html>", encoding="utf-8")
-            estado = {"eventos": {"Doc1": {"estado": "descargado", "archivo": documento.name, "sha256": archivos.hash_archivo(documento)}}}
-            with patch("src.pdf.sync_playwright", side_effect=PlaywrightError("navegador no disponible")):
-                destino = modulo_ejecucion.preparar_zip_ejecucion(carpeta, date(2030, 11, 12), estado, carpeta / "estado.json")
+            estado = {
+                "eventos": {
+                    "Doc1": {
+                        "estado": "descargado",
+                        "archivo": documento.name,
+                        "sha256": archivos.hash_archivo(documento),
+                    }
+                }
+            }
+            with patch(
+                "src.pdf.sync_playwright",
+                side_effect=PlaywrightError("navegador no disponible"),
+            ):
+                destino = modulo_ejecucion.preparar_zip_ejecucion(
+                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                )
             with zipfile.ZipFile(destino) as archivo:
                 self.assertEqual(archivo.namelist(), ["evento.doc"])
                 self.assertEqual(archivo.read("evento.doc"), documento.read_bytes())

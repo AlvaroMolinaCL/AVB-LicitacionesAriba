@@ -20,9 +20,14 @@ def convertir_documentos_pdf(documentos: list[Path], carpeta: Path) -> list[Path
     resultados = list(documentos)
     try:
         with ThreadPoolExecutor(max_workers=1) as ejecutor:
-            ejecutor.submit(_generar_pdfs, documentos, carpeta, nombres, resultados).result()
+            ejecutor.submit(
+                _generar_pdfs, documentos, carpeta, nombres, resultados
+            ).result()
     except (PlaywrightError, OSError) as error:
-        print(f"No se pudo completar la conversión a PDF: {error}. Se conservarán los documentos originales restantes.", flush=True)
+        print(
+            f"No se pudo completar la conversión a PDF: {error}. Se conservarán los documentos originales restantes.",
+            flush=True,
+        )
     return resultados
 
 
@@ -37,10 +42,17 @@ def _generar_pdfs(
             pagina = contexto.new_page()
             for indice, (documento, nombre) in enumerate(zip(documentos, nombres)):
                 try:
-                    pagina.set_content(documento.read_text(encoding="utf-8-sig"), wait_until="load")
-                    pagina.pdf(path=str(carpeta / nombre), format="A4", print_background=True)
+                    pagina.set_content(
+                        documento.read_text(encoding="utf-8-sig"), wait_until="load"
+                    )
+                    pagina.pdf(
+                        path=str(carpeta / nombre), format="A4", print_background=True
+                    )
                 except (PlaywrightError, OSError, UnicodeError) as error:
-                    print(f"No se pudo convertir {documento.name} a PDF: {error}. Se incluirá el original.", flush=True)
+                    print(
+                        f"No se pudo convertir {documento.name} a PDF: {error}. Se incluirá el original.",
+                        flush=True,
+                    )
                 else:
                     resultados[indice] = carpeta / nombre
         finally:

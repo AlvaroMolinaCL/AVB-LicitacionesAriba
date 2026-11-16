@@ -12,7 +12,9 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-URL_INICIO = "https://service.ariba.com/Sourcing.aw/109582009/aw?awh=r&awssk=DbtYXejP&dard=1#b0"
+URL_INICIO = (
+    "https://service.ariba.com/Sourcing.aw/109582009/aw?awh=r&awssk=DbtYXejP&dard=1#b0"
+)
 SERVICIO = "AVB-LicitacionesAriba"
 
 
@@ -200,11 +202,16 @@ def iniciar_sesion(pagina, usuario: str | None, clave: str | None) -> None:
                 raise ValueError("No se introducirá la clave fuera de Ariba")
             contrasena.fill(clave)
             enlace_ingreso = pagina.get_by_role(
-                "link", name=re.compile(r"conectarse|iniciar sesión|inicio de sesión|sign in", re.I)
+                "link",
+                name=re.compile(
+                    r"conectarse|iniciar sesión|inicio de sesión|sign in", re.I
+                ),
             )
             boton_ingreso = pagina.get_by_role(
                 "button",
-                name=re.compile(r"conectarse|iniciar sesión|inicio de sesión|login|sign in", re.I),
+                name=re.compile(
+                    r"conectarse|iniciar sesión|inicio de sesión|login|sign in", re.I
+                ),
             )
             if enlace_ingreso.count():
                 enlace_ingreso.first.click()

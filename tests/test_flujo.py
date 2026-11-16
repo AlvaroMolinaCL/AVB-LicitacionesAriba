@@ -35,11 +35,17 @@ class PruebasFlujo(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as carpeta, patch.object(
             modulo_ejecucion, "bloqueo_ejecucion", return_value=nullcontext()
-        ), patch("playwright.sync_api.sync_playwright", return_value=nullcontext(playwright)), patch(
+        ), patch(
+            "playwright.sync_api.sync_playwright", return_value=nullcontext(playwright)
+        ), patch(
             "keyring.get_password", return_value="valor-ficticio"
-        ), patch.object(modulo_ejecucion, "iniciar_sesion") as login, patch.object(
+        ), patch.object(
+            modulo_ejecucion, "iniciar_sesion"
+        ) as login, patch.object(
             modulo_ejecucion, "exportar_eventos", side_effect=exportar
-        ), patch.object(modulo_ejecucion, "leer_exportacion", return_value=[]), patch.object(
+        ), patch.object(
+            modulo_ejecucion, "leer_exportacion", return_value=[]
+        ), patch.object(
             modulo_ejecucion.time, "sleep"
         ) as esperar:
             resultado = modulo_ejecucion.ejecutar_flujo_principal(
@@ -515,7 +521,9 @@ class PruebasFlujo(unittest.TestCase):
             )
             with zipfile.ZipFile(zip_documentos) as archivo:
                 self.assertEqual(archivo.namelist(), ["12-11 Doc1 - 6001.pdf"])
-                self.assertTrue(archivo.read("12-11 Doc1 - 6001.pdf").startswith(b"%PDF-"))
+                self.assertTrue(
+                    archivo.read("12-11 Doc1 - 6001.pdf").startswith(b"%PDF-")
+                )
             self.assertFalse((raiz / "Descargas").exists())
             resumen = (
                 raiz

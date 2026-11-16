@@ -118,11 +118,17 @@ def preparar_zip_ejecucion(
     )
     with zipfile.ZipFile(destino) as archivo:
         nombres = archivo.namelist()
-        if len(nombres) != len(documentos) or any(
-            nombre not in {documento.name, documento.with_suffix(".pdf").name}
-            for nombre, documento in zip(nombres, documentos)
-        ) or len({nombre.casefold() for nombre in nombres}) != len(nombres):
-            raise ValueError("El ZIP existente no contiene los documentos esperados; requiere revisión")
+        if (
+            len(nombres) != len(documentos)
+            or any(
+                nombre not in {documento.name, documento.with_suffix(".pdf").name}
+                for nombre, documento in zip(nombres, documentos)
+            )
+            or len({nombre.casefold() for nombre in nombres}) != len(nombres)
+        ):
+            raise ValueError(
+                "El ZIP existente no contiene los documentos esperados; requiere revisión"
+            )
     return destino
 
 
