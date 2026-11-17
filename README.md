@@ -4,6 +4,8 @@ Aplicación para Windows y Python 3.10 o posterior. Extrae los eventos de licita
 
 ## Preparación
 
+En Windows, `1_INSTALAR.bat` detecta Python 3.10 o posterior mediante el lanzador, el registro o PATH. Si no encuentra una versión compatible, descarga y verifica Python 3.14 oficial y lo instala solo para el usuario actual, sin solicitar permisos de administrador ni modificar otras versiones. La descarga automática requiere Windows de 64 bits, conexión a Internet y que las políticas del equipo permitan descargar y ejecutar el instalador; en caso contrario, instale Python 3.10 o posterior para ese usuario. La opción 12 del panel utiliza la misma detección para reparar el entorno.
+
 En PowerShell, desde esta carpeta:
 
 ```powershell
@@ -113,6 +115,8 @@ Para ejecutar pruebas, utilice:
 ## Programación de Tarea en Windows
 
 Antes de programar la tarea, configure y pruebe Ariba, el remitente y los destinatarios con el **mismo usuario de Windows** que la ejecutará. Confirme que Chromium está instalado en `.datos\navegadores` y que el equipo tiene acceso a Ariba y Gmail. Compruebe también la fecha, la hora y la zona horaria de Windows.
+
+El instalador `1_INSTALAR.bat` y la opción 12 de `2_PANEL_CONTROL.bat` pueden crear o reemplazar la tarea `Actualizar Licitaciones Codelco desde Ariba` en la raíz de la Biblioteca del Programador de tareas. Ambos requieren `scripts\configurar_tarea.ps1`. La tarea se configura para el usuario actual, de lunes a viernes, y solo se ejecuta mientras ese usuario tenga sesión iniciada. El asistente comprueba que la tarea registrada coincide con la ruta, usuario y horario indicados; si muestra un error, no considere la tarea configurada. La opción 11 del panel muestra su estado y próxima ejecución. Si se omite la creación, cualquier tarea anterior permanece sin cambios. Active la tarea solo en el equipo designado y compruebe su funcionamiento real siguiendo el paso 6, teniendo presente que puede enviar el correo real.
 
 1. Abra **Programador de tareas** desde el menú Inicio y elija **Crear tarea**. En **General**, asigne un nombre y seleccione la cuenta de Windows que configuró las credenciales. Para la primera validación, elija **Ejecutar solo cuando el usuario haya iniciado sesión**; puede bloquear la sesión sin cerrarla. Si necesita ejecutar sin iniciar sesión, pruebe expresamente la opción correspondiente con esa misma cuenta y sus credenciales: el acceso al almacén de credenciales y al perfil del navegador depende del contexto de Windows y de las políticas de la empresa.
 2. En **Desencadenadores**, cree uno **Según una programación**, de tipo **Semanal**, seleccione lunes a viernes y establezca la hora deseada. En las opciones avanzadas, active **Expirar** y elija una fecha suficientemente lejana; la tarea dejará de activarse después de esa fecha y habrá que renovarla. La recuperación de inicios perdidos requiere un desencadenador temporal con fecha de finalización o repetición indefinida. Como margen adicional, puede seleccionar **Repetir la tarea cada 30 minutos** durante un período del mismo día, por ejemplo 12 horas para una tarea que comienza a las 08:00. No active la opción que detiene una instancia al finalizar ese período.
