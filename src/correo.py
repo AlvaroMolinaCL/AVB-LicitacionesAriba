@@ -87,7 +87,7 @@ def crear_mensaje(
 
 
 def conectar_correo(remitente: str, clave: str):
-    servidor = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
+    servidor = smtplib.SMTP("smtp.gmail.com", 587, timeout=120)
     try:
         servidor.ehlo()
         servidor.starttls(context=ssl.create_default_context())
