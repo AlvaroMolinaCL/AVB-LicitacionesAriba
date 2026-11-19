@@ -1,5 +1,5 @@
 import tempfile
-import unittest
+import pytest
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -19,16 +19,16 @@ from src.ariba import (
 )
 
 
-class PruebasAriba(unittest.TestCase):
+class TestAriba:
     def test_seleccion_informa_el_paso_que_agota_el_tiempo(self):
         pagina = Mock()
         pagina.get_by_role.return_value.wait_for.side_effect = TimeoutError()
         with patch("builtins.print") as imprimir:
-            with self.assertRaises(TimeoutError):
+            with pytest.raises(TimeoutError):
                 seleccionar_codelco(pagina)
         mensajes = [llamada.args[0] for llamada in imprimir.call_args_list]
-        self.assertIn("Ariba: esperando la lista de clientes.", mensajes)
-        self.assertNotIn("Ariba: seleccionando Codelco.", mensajes)
+        assert ("Ariba: esperando la lista de clientes.") in (mensajes)
+        assert ("Ariba: seleccionando Codelco.") not in (mensajes)
 
     def test_descarga_parcial_no_bloquea_el_siguiente_intento(self):
         pagina = Mock(url="https://s3.ariba.com/evento")
@@ -46,9 +46,9 @@ class PruebasAriba(unittest.TestCase):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
             with patch("src.ariba.capturar_impresion", side_effect=descargar):
-                with self.assertRaises(TimeoutError):
+                with pytest.raises(TimeoutError):
                     descargar_evento(pagina, evento, carpeta)
-            self.assertEqual(list(carpeta.iterdir()), [])
+            assert (list(carpeta.iterdir())) == ([])
             with patch(
                 "src.ariba.capturar_impresion",
                 side_effect=lambda pagina, boton, destino: destino.write_text(
@@ -56,8 +56,8 @@ class PruebasAriba(unittest.TestCase):
                 ),
             ):
                 documento, aviso = descargar_evento(pagina, evento, carpeta)
-            self.assertIsNone(aviso)
-            self.assertEqual(documento.name, "24-11 Doc1 - 6001.doc")
+            assert (aviso) is None
+            assert (documento.name) == ("24-11 Doc1 - 6001.doc")
             with patch(
                 "src.ariba.capturar_impresion",
                 side_effect=lambda pagina, boton, destino: destino.write_text(
@@ -65,7 +65,7 @@ class PruebasAriba(unittest.TestCase):
                 ),
             ):
                 recuperado, _ = descargar_evento(pagina, evento, carpeta)
-            self.assertEqual(recuperado, documento)
+            assert (recuperado) == (documento)
             documento.write_text("otro documento", encoding="utf-8")
             with patch(
                 "src.ariba.capturar_impresion",
@@ -73,9 +73,9 @@ class PruebasAriba(unittest.TestCase):
                     contenido, encoding="utf-8"
                 ),
             ):
-                with self.assertRaises(FileExistsError):
+                with pytest.raises(FileExistsError):
                     descargar_evento(pagina, evento, carpeta)
-            self.assertEqual(documento.read_text(encoding="utf-8"), "otro documento")
+            assert (documento.read_text(encoding="utf-8")) == ("otro documento")
 
     def test_descarga_identifica_redireccion_de_login_y_error_temporal(self):
         pagina = Mock(url="https://s3.ariba.com/evento")
@@ -84,11 +84,11 @@ class PruebasAriba(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as carpeta:
             pagina.goto.return_value = Mock(status=503)
-            with self.assertRaises(ServicioTemporalError):
+            with pytest.raises(ServicioTemporalError):
                 descargar_evento(pagina, evento, Path(carpeta))
             pagina.goto.return_value = Mock(status=200)
             pagina.locator.return_value.count.return_value = 1
-            with self.assertRaises(SesionExpiradaError):
+            with pytest.raises(SesionExpiradaError):
                 descargar_evento(pagina, evento, Path(carpeta))
 
     def test_impresion_identifica_error_temporal(self):
@@ -102,7 +102,7 @@ class PruebasAriba(unittest.TestCase):
         boton.get_attribute.return_value = "control"
         boton.click.side_effect = lambda: pagina.route.call_args.args[1](ruta)
         with tempfile.TemporaryDirectory() as carpeta:
-            with self.assertRaises(ServicioTemporalError):
+            with pytest.raises(ServicioTemporalError):
                 capturar_impresion(pagina, boton, Path(carpeta) / "evento.doc")
 
     def test_fecha_y_nombre_del_documento(self):
@@ -115,10 +115,9 @@ class PruebasAriba(unittest.TestCase):
                 encoding="utf-8",
             )
             fecha = fecha_vencimiento(documento)
-            self.assertEqual(fecha, datetime(2030, 12, 4, 15, 13))
-            self.assertEqual(
-                nombre_documento(fecha, "Doc123", "6001/ARTICULO"),
-                "04-12 Doc123 - 6001 ARTICULO.doc",
+            assert (fecha) == (datetime(2030, 12, 4, 15, 13))
+            assert (nombre_documento(fecha, "Doc123", "6001/ARTICULO")) == (
+                "04-12 Doc123 - 6001 ARTICULO.doc"
             )
 
     def test_fecha_ausente_y_fecha_desconocida(self):
@@ -128,12 +127,12 @@ class PruebasAriba(unittest.TestCase):
                 "<!-- class: ariba.sourcing.rfxui.PrintRFXEncode --><html><table></table></html>",
                 encoding="utf-8",
             )
-            self.assertIsNone(fecha_vencimiento(ruta))
+            assert (fecha_vencimiento(ruta)) is None
             ruta.write_text(
                 "<!-- class: ariba.sourcing.rfxui.PrintRFXEncode --><html><table><tr><td>Fecha de vencimiento</td><td>fecha desconocida</td></tr></table></html>",
                 encoding="utf-8",
             )
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 fecha_vencimiento(ruta)
 
     def test_fecha_de_vencimiento_con_formato_am_pm(self):
@@ -143,36 +142,34 @@ class PruebasAriba(unittest.TestCase):
                 "<!-- class: ariba.sourcing.rfxui.PrintRFXEncode --><html><table><tr><td>Fecha de vencimiento</td><td>24/11/2026 03:00 PM</td></tr></table></html>",
                 encoding="utf-8",
             )
-            self.assertEqual(fecha_vencimiento(ruta), datetime(2026, 11, 24, 15))
+            assert (fecha_vencimiento(ruta)) == (datetime(2026, 11, 24, 15))
             ruta.write_text("<html>Sesion expirada</html>", encoding="utf-8")
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 fecha_vencimiento(ruta)
 
     def test_dominio_de_ariba(self):
-        self.assertTrue(url_ariba("https://s3.ariba.com/ejemplo"))
-        self.assertFalse(url_ariba("https://ariba.com.ejemplo.com/"))
-        self.assertFalse(url_ariba("http://s3.ariba.com/"))
+        assert url_ariba("https://s3.ariba.com/ejemplo")
+        assert not (url_ariba("https://ariba.com.ejemplo.com/"))
+        assert not (url_ariba("http://s3.ariba.com/"))
 
     def test_solicitud_de_impresion_solo_acepta_el_control_y_marco_correspondientes(
         self,
     ):
-        self.assertTrue(
-            es_impresion(
-                "https://s3.ariba.com/accion?awsn=control&awii=AWRefreshFrame",
-                "control",
-            )
+        assert es_impresion(
+            "https://s3.ariba.com/accion?awsn=control&awii=AWRefreshFrame",
+            "control",
         )
-        self.assertFalse(
+        assert not (
             es_impresion(
                 "https://s3.ariba.com/accion?awsn=otro&awii=AWRefreshFrame", "control"
             )
         )
-        self.assertFalse(
+        assert not (
             es_impresion(
                 "https://s3.ariba.com/accion?awsn=control&awii=otro", "control"
             )
         )
-        self.assertFalse(
+        assert not (
             es_impresion(
                 "https://ariba.com.ejemplo.com/?awsn=control&awii=AWRefreshFrame",
                 "control",
@@ -193,7 +190,7 @@ class PruebasAriba(unittest.TestCase):
         with tempfile.TemporaryDirectory() as carpeta:
             destino = Path(carpeta) / "evento.doc"
             capturar_impresion(pagina, boton, destino)
-            self.assertEqual(destino.read_bytes(), documento)
+            assert (destino.read_bytes()) == (documento)
         ruta.fulfill.assert_called_once_with(status=204, body="")
         pagina.unroute.assert_called_once()
 
@@ -209,9 +206,9 @@ class PruebasAriba(unittest.TestCase):
         boton.click.side_effect = lambda: pagina.route.call_args.args[1](ruta)
         with tempfile.TemporaryDirectory() as carpeta:
             destino = Path(carpeta) / "evento.doc"
-            with self.assertRaisesRegex(ValueError, "Word válido"):
+            with pytest.raises(ValueError, match="Word válido"):
                 capturar_impresion(pagina, boton, destino)
-            self.assertFalse(destino.exists())
+            assert not (destino.exists())
         pagina.unroute.assert_called_once()
 
     def test_captura_detecta_sesion_expirada(self):
@@ -226,10 +223,6 @@ class PruebasAriba(unittest.TestCase):
         boton.click.side_effect = lambda: pagina.route.call_args.args[1](ruta)
         with tempfile.TemporaryDirectory() as carpeta:
             destino = Path(carpeta) / "evento.doc"
-            with self.assertRaises(SesionExpiradaError):
+            with pytest.raises(SesionExpiradaError):
                 capturar_impresion(pagina, boton, destino)
-            self.assertFalse(destino.exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert not (destino.exists())

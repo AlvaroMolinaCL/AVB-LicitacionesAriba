@@ -1,14 +1,15 @@
 import os
 import subprocess
 import tempfile
-import unittest
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
 
-@unittest.skipUnless(os.name == "nt", "Requiere Windows")
-class PruebasProgramador(unittest.TestCase):
+
+@pytest.mark.skipif(os.name != "nt", reason="Requiere Windows")
+class TestProgramador:
     def test_rechaza_hora_invalida(self) -> None:
         raiz = Path(__file__).resolve().parent.parent
         resultado = subprocess.run(
@@ -28,12 +29,12 @@ class PruebasProgramador(unittest.TestCase):
             text=True,
             errors="replace",
         )
-        self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("formato HH:MM", resultado.stdout)
+        assert resultado.returncode != 0
+        assert "formato HH:MM" in resultado.stdout
 
-    @unittest.skipUnless(
-        os.environ.get("AVB_PROBAR_PROGRAMADOR") == "1",
-        "Prueba de integracion optativa que registra una tarea temporal",
+    @pytest.mark.skipif(
+        os.environ.get("AVB_PROBAR_PROGRAMADOR") != "1",
+        reason="Prueba de integracion optativa que registra una tarea temporal",
     )
     def test_registra_y_verifica_tarea_temporal(self) -> None:
         raiz = Path(__file__).resolve().parent.parent
@@ -84,7 +85,7 @@ class PruebasProgramador(unittest.TestCase):
                         text=True,
                         errors="replace",
                     )
-                    self.fail(
+                    pytest.fail(
                         resultado.stdout
                         + resultado.stderr
                         + diagnostico.stdout
@@ -95,9 +96,7 @@ class PruebasProgramador(unittest.TestCase):
                     capture_output=True,
                     text=True,
                 )
-                self.assertEqual(
-                    consulta.returncode, 0, consulta.stdout + consulta.stderr
-                )
+                assert consulta.returncode == 0, consulta.stdout + consulta.stderr
             finally:
                 subprocess.run(
                     ["schtasks", "/delete", "/tn", nombre, "/f"],

@@ -1,5 +1,5 @@
 import tempfile
-import unittest
+import pytest
 from datetime import datetime
 from pathlib import Path
 
@@ -9,7 +9,7 @@ from src.consolidado import COLUMNAS, extraer_documento, generar_consolidado
 from src.reportes import Evento
 
 
-class PruebasConsolidado(unittest.TestCase):
+class TestConsolidado:
     def test_fecha_hora_y_hipervinculos_corresponden_a_cada_documento(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
@@ -34,21 +34,19 @@ class PruebasConsolidado(unittest.TestCase):
             generar_consolidado(destino, [(primero, False), (segundo, False)], eventos)
             libro = load_workbook(destino)
             hoja = libro.active
-            self.assertEqual(hoja["F1"].value, "Fecha Finalización")
-            self.assertEqual(hoja["G1"].value, "Fecha Entrega")
-            self.assertEqual(hoja["F2"].value, datetime(2030, 11, 24, 15, 47))
-            self.assertIn("hh:mm", hoja["F2"].number_format)
-            self.assertEqual(hoja["F3"].value, "N/A")
-            self.assertEqual(
-                (hoja["A2"].value, hoja["A2"].hyperlink.target),
-                ("Doc1", "https://s3.ariba.com/evento1"),
+            assert (hoja["F1"].value) == ("Fecha Finalización")
+            assert (hoja["G1"].value) == ("Fecha Entrega")
+            assert (hoja["F2"].value) == (datetime(2030, 11, 24, 15, 47))
+            assert ("hh:mm") in (hoja["F2"].number_format)
+            assert (hoja["F3"].value) == ("N/A")
+            assert ((hoja["A2"].value, hoja["A2"].hyperlink.target)) == (
+                ("Doc1", "https://s3.ariba.com/evento1")
             )
-            self.assertEqual(
-                (hoja["A3"].value, hoja["A3"].hyperlink.target),
-                ("Doc2", "https://s3.ariba.com/evento2"),
+            assert ((hoja["A3"].value, hoja["A3"].hyperlink.target)) == (
+                ("Doc2", "https://s3.ariba.com/evento2")
             )
             libro.close()
-            with self.assertRaisesRegex(ValueError, "Faltan datos"):
+            with pytest.raises(ValueError, match="Faltan datos"):
                 generar_consolidado(carpeta / "incompleto.xlsx", [(primero, False)], {})
 
     def test_descarta_secciones_numeradas_y_conserva_items_con_campos_vacios(self):
@@ -75,16 +73,12 @@ class PruebasConsolidado(unittest.TestCase):
                 "18 Articulo sin cantidad informada",
                 "18.1.1 Servicio descrito",
             ]
-            self.assertEqual([fila["Ítem Principal"] for fila in filas], nombres)
-            self.assertEqual(
-                (filas[0]["N.° Material"], filas[1]["Cantidad"]), ("42", "N/A")
-            )
+            assert ([fila["Ítem Principal"] for fila in filas]) == (nombres)
+            assert ((filas[0]["N.° Material"], filas[1]["Cantidad"])) == (("42", "N/A"))
             resumen = Path(carpeta) / "resumen.xlsx"
             generar_consolidado(resumen, [(documento, False)])
             libro = load_workbook(resumen, read_only=True, data_only=True)
-            self.assertEqual(
-                [fila[2] for fila in list(libro.active.values)[1:]], nombres
-            )
+            assert ([fila[2] for fila in list(libro.active.values)[1:]]) == (nombres)
             libro.close()
 
     def test_documento_ficticio_coincide_con_consolidado(self):
@@ -125,27 +119,24 @@ class PruebasConsolidado(unittest.TestCase):
                 ),
             ]
             filas = extraer_documento(documento, False)
-            self.assertEqual(
-                [tuple(fila[columna] for columna in COLUMNAS) for fila in filas],
-                esperadas,
-            )
+            assert (
+                [tuple(fila[columna] for columna in COLUMNAS) for fila in filas]
+            ) == (esperadas)
             destino = carpeta / "resumen.xlsx"
-            self.assertEqual(generar_consolidado(destino, [(documento, False)]), 2)
+            assert (generar_consolidado(destino, [(documento, False)])) == (2)
             generado = load_workbook(destino, read_only=True, data_only=True)
             filas_excel = list(generado.active.values)
             generado.close()
-            self.assertEqual(
-                filas_excel,
-                [COLUMNAS, *((Path(fila[0]).stem, *fila[1:]) for fila in esperadas)],
+            assert (filas_excel) == (
+                [COLUMNAS, *((Path(fila[0]).stem, *fila[1:]) for fila in esperadas)]
             )
 
     def test_documento_sin_items_se_marca_para_revision(self):
         with tempfile.TemporaryDirectory() as carpeta:
             documento = Path(carpeta) / "ejemplo.doc"
             documento.write_text("<html><body></body></html>", encoding="utf-8")
-            self.assertEqual(
-                extraer_documento(documento, False)[0]["Descripción"],
-                "Revisar manualmente",
+            assert (extraer_documento(documento, False)[0]["Descripción"]) == (
+                "Revisar manualmente"
             )
 
     def test_documento_sr_con_items_anidados(self):
@@ -160,7 +151,7 @@ class PruebasConsolidado(unittest.TestCase):
                 encoding="utf-8",
             )
             fila = extraer_documento(documento, True)[0]
-            self.assertEqual(
+            assert (
                 (
                     fila["Región"],
                     fila["Ítem Principal"],
@@ -168,7 +159,8 @@ class PruebasConsolidado(unittest.TestCase):
                     fila["Cantidad"],
                     fila["Fecha Entrega"],
                     fila["Descripción"],
-                ),
+                )
+            ) == (
                 (
                     "TE01 El Teniente",
                     "3.1.1 Material",
@@ -176,7 +168,7 @@ class PruebasConsolidado(unittest.TestCase):
                     "3 Unidades",
                     "10/12/2026",
                     "Descripcion detallada",
-                ),
+                )
             )
 
     def test_documento_sr_ficticio_con_varios_items(self):
@@ -196,8 +188,8 @@ class PruebasConsolidado(unittest.TestCase):
                 encoding="utf-8",
             )
             filas = extraer_documento(documento, True)
-            self.assertEqual(len(filas), 2)
-            self.assertEqual(
+            assert (len(filas)) == (2)
+            assert (
                 [
                     (
                         fila["Región"],
@@ -208,7 +200,8 @@ class PruebasConsolidado(unittest.TestCase):
                         fila["Descripción"],
                     )
                     for fila in filas
-                ],
+                ]
+            ) == (
                 [
                     (
                         "Zona ficticia",
@@ -226,7 +219,7 @@ class PruebasConsolidado(unittest.TestCase):
                         "N/A",
                         "Detalle del segundo equipo",
                     ),
-                ],
+                ]
             )
 
     def test_formatos_ficticios_y_consolidado(self):
@@ -258,32 +251,27 @@ class PruebasConsolidado(unittest.TestCase):
             sr = extraer_documento(carpeta / "sr.doc", True)
             rfp = extraer_documento(carpeta / "rfp.doc", False)
             adjuntos = extraer_documento(carpeta / "adjuntos.doc", False)
-            self.assertEqual(
-                (sct[0]["N.° Material"], sct[0]["Cantidad"], sct[0]["Descripción"]),
-                ("5432", "1,200 Unidades", "Detalle ficticio"),
+            assert (
+                (sct[0]["N.° Material"], sct[0]["Cantidad"], sct[0]["Descripción"])
+            ) == (("5432", "1,200 Unidades", "Detalle ficticio"))
+            assert ([(fila["Ítem Principal"], fila["Cantidad"]) for fila in sr]) == (
+                [("3.1.1 Material A", "3 Unidades"), ("3.1.2 Material B", "5 Metros")]
             )
-            self.assertEqual(
-                [(fila["Ítem Principal"], fila["Cantidad"]) for fila in sr],
-                [("3.1.1 Material A", "3 Unidades"), ("3.1.2 Material B", "5 Metros")],
-            )
-            self.assertEqual(
-                (rfp[0]["Descripción"], rfp[0]["Fecha Entrega"], rfp[1]["Descripción"]),
-                ("Primera linea Segunda linea", "20/12/2030", "N/A"),
-            )
-            self.assertEqual(
-                adjuntos[0]["Descripción"],
-                "Revisar manualmente. Adjuntos: instrucciones_ficticias.pdf; oferta_ficticia.xlsx",
+            assert (
+                (rfp[0]["Descripción"], rfp[0]["Fecha Entrega"], rfp[1]["Descripción"])
+            ) == (("Primera linea Segunda linea", "20/12/2030", "N/A"))
+            assert (adjuntos[0]["Descripción"]) == (
+                "Revisar manualmente. Adjuntos: instrucciones_ficticias.pdf; oferta_ficticia.xlsx"
             )
             destino = carpeta / "consolidado.xlsx"
             documentos = [
                 (carpeta / nombre, nombre == "sr.doc") for nombre in contenidos
             ]
-            self.assertEqual(generar_consolidado(destino, documentos), 6)
+            assert (generar_consolidado(destino, documentos)) == (6)
             libro = load_workbook(destino, read_only=True, data_only=True)
             filas = list(libro.active.values)
             libro.close()
-            self.assertEqual(
-                filas,
+            assert (filas) == (
                 [
                     COLUMNAS,
                     *[
@@ -294,9 +282,5 @@ class PruebasConsolidado(unittest.TestCase):
                         for grupo in (sct, sr, rfp, adjuntos)
                         for fila in grupo
                     ],
-                ],
+                ]
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

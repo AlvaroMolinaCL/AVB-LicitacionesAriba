@@ -2,12 +2,12 @@ import os
 import subprocess
 import sys
 import tempfile
-import unittest
+import pytest
 from pathlib import Path
 
 
-@unittest.skipUnless(os.name == "nt", "Requiere Windows")
-class PruebasInstalador(unittest.TestCase):
+@pytest.mark.skipif(os.name != "nt", reason="Requiere Windows")
+class TestInstalador:
     def ejecutar_simulacion(
         self, fallo_descarga: bool, hash_valido: bool = True
     ) -> tuple[subprocess.CompletedProcess, bool, str]:
@@ -81,24 +81,24 @@ function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, [switch]
 
     def test_instala_solo_para_el_usuario_sin_elevacion(self) -> None:
         resultado, existe_entorno, argumentos = self.ejecutar_simulacion(False)
-        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        self.assertTrue(existe_entorno)
-        self.assertIn("InstallAllUsers=0", argumentos)
-        self.assertIn("Include_launcher=0", argumentos)
-        self.assertNotIn("RunAs", argumentos)
+        assert (resultado.returncode) == (0), resultado.stdout + resultado.stderr
+        assert existe_entorno
+        assert ("InstallAllUsers=0") in (argumentos)
+        assert ("Include_launcher=0") in (argumentos)
+        assert ("RunAs") not in (argumentos)
 
     def test_fallo_descarga_no_crea_entorno(self) -> None:
         resultado, existe_entorno, _ = self.ejecutar_simulacion(True)
-        self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("descarga bloqueada", resultado.stdout)
-        self.assertFalse(existe_entorno)
+        assert (resultado.returncode) != (0)
+        assert ("descarga bloqueada") in (resultado.stdout)
+        assert not (existe_entorno)
 
     def test_hash_incorrecto_no_instala(self) -> None:
         resultado, existe_entorno, argumentos = self.ejecutar_simulacion(False, False)
-        self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("suma de seguridad", resultado.stdout)
-        self.assertFalse(existe_entorno)
-        self.assertEqual(argumentos, "")
+        assert (resultado.returncode) != (0)
+        assert ("suma de seguridad") in (resultado.stdout)
+        assert not (existe_entorno)
+        assert (argumentos) == ("")
 
     def test_entorno_invalido_no_se_sobrescribe(self) -> None:
         raiz = Path(__file__).resolve().parent.parent
@@ -120,6 +120,6 @@ function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, [switch]
                 text=True,
                 errors="replace",
             )
-            self.assertNotEqual(resultado.returncode, 0)
-            self.assertIn("entorno existente", resultado.stdout)
-            self.assertTrue(entorno.exists())
+            assert (resultado.returncode) != (0)
+            assert ("entorno existente") in (resultado.stdout)
+            assert entorno.exists()

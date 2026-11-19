@@ -1,5 +1,5 @@
 import tempfile
-import unittest
+import pytest
 import json
 import smtplib
 import zipfile
@@ -21,7 +21,7 @@ from src.correo import (
 import principal
 
 
-class PruebasCorreo(unittest.TestCase):
+class TestCorreo:
     def test_conversion_con_playwright_activo(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
@@ -29,7 +29,7 @@ class PruebasCorreo(unittest.TestCase):
             documento.write_text("<html>Prueba</html>", encoding="utf-8")
             with sync_playwright():
                 pdf = convertir_documentos_pdf([documento], carpeta)[0]
-            self.assertTrue(pdf.read_bytes().startswith(b"%PDF-"))
+            assert pdf.read_bytes().startswith(b"%PDF-")
 
     def test_primera_ejecucion_interactiva_configura_datos_faltantes(self):
         with tempfile.TemporaryDirectory() as carpeta, patch.object(
@@ -53,15 +53,13 @@ class PruebasCorreo(unittest.TestCase):
         ), patch(
             "keyring.set_password"
         ) as guardar:
-            self.assertEqual(principal.main(), 0)
+            assert (principal.main()) == (0)
         leer.assert_called_once_with("Correo remitente: ")
-        self.assertEqual(guardar.call_count, 2)
-        self.assertEqual(
-            guardar.call_args_list[0].args[1:], ("remitente", "remitente@example.com")
+        assert (guardar.call_count) == (2)
+        assert (guardar.call_args_list[0].args[1:]) == (
+            ("remitente", "remitente@example.com")
         )
-        self.assertEqual(
-            guardar.call_args_list[1].args[1:], ("contrasena", "claveficticia")
-        )
+        assert (guardar.call_args_list[1].args[1:]) == (("contrasena", "claveficticia"))
 
     def test_comando_configura_destinatarios_y_cc(self):
         with tempfile.TemporaryDirectory() as carpeta, patch.object(
@@ -71,10 +69,9 @@ class PruebasCorreo(unittest.TestCase):
         ), patch(
             "builtins.input", side_effect=["principal@example.com", "copia@example.com"]
         ):
-            self.assertEqual(principal.main(), 0)
-            self.assertEqual(
-                correo.cargar_destinatarios(),
-                (["principal@example.com"], ["copia@example.com"]),
+            assert (principal.main()) == (0)
+            assert (correo.cargar_destinatarios()) == (
+                (["principal@example.com"], ["copia@example.com"])
             )
 
     def test_sin_destinatarios_no_inicia_conexion(self):
@@ -97,7 +94,7 @@ class PruebasCorreo(unittest.TestCase):
                 "keyring.get_password",
                 side_effect=["remitente@example.com", "clave-ficticia"],
             ), patch.object(correo, "conectar_correo") as conectar:
-                with self.assertRaisesRegex(RuntimeError, "configurar-destinatarios"):
+                with pytest.raises(RuntimeError, match="configurar-destinatarios"):
                     correo.enviar_resumen_guardado(
                         resumen,
                         date(2030, 11, 12),
@@ -106,7 +103,7 @@ class PruebasCorreo(unittest.TestCase):
                         documentos_zip,
                     )
             conectar.assert_not_called()
-            self.assertEqual(estado["correo"]["estado"], "pendiente")
+            assert (estado["correo"]["estado"]) == ("pendiente")
 
     def test_configurar_destinatarios_actualiza_archivo_local(self):
         with tempfile.TemporaryDirectory() as carpeta, patch.object(
@@ -117,18 +114,17 @@ class PruebasCorreo(unittest.TestCase):
                 side_effect=["uno@example.com, dos@example.com", "copia@example.com"],
             ):
                 principal.configurar_destinatarios()
-            self.assertEqual(
-                correo.cargar_destinatarios(),
-                (["uno@example.com", "dos@example.com"], ["copia@example.com"]),
+            assert (correo.cargar_destinatarios()) == (
+                (["uno@example.com", "dos@example.com"], ["copia@example.com"])
             )
             with patch("builtins.input", side_effect=["otro@example.com", ""]):
                 principal.configurar_destinatarios()
-            self.assertEqual(correo.cargar_destinatarios(), (["otro@example.com"], []))
-            with patch("builtins.input", side_effect=["", ""]), self.assertRaises(
+            assert (correo.cargar_destinatarios()) == ((["otro@example.com"], []))
+            with patch("builtins.input", side_effect=["", ""]), pytest.raises(
                 ValueError
             ):
                 principal.configurar_destinatarios()
-            self.assertEqual(correo.cargar_destinatarios(), (["otro@example.com"], []))
+            assert (correo.cargar_destinatarios()) == ((["otro@example.com"], []))
 
     def test_mensaje_usa_destinatarios_y_copia_configurados(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -144,9 +140,9 @@ class PruebasCorreo(unittest.TestCase):
                 ["destino@example.com"],
                 ["copia@example.com"],
             )
-            self.assertEqual(mensaje["To"], "destino@example.com")
-            self.assertEqual(mensaje["Cc"], "copia@example.com")
-            self.assertEqual(len(list(mensaje.iter_attachments())), 2)
+            assert (mensaje["To"]) == ("destino@example.com")
+            assert (mensaje["Cc"]) == ("copia@example.com")
+            assert (len(list(mensaje.iter_attachments()))) == (2)
 
     def test_rechazo_parcial_reintenta_solo_destinatarios_rechazados(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -178,39 +174,34 @@ class PruebasCorreo(unittest.TestCase):
             ) as cargar, patch.object(
                 correo, "conectar_correo", return_value=servidor
             ):
-                with self.assertRaisesRegex(RuntimeError, "algunos destinatarios"):
+                with pytest.raises(RuntimeError, match="algunos destinatarios"):
                     correo.enviar_resumen_guardado(
                         resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
                     )
-                self.assertEqual(estado["correo"]["estado"], "parcial")
-                self.assertEqual(
-                    estado["correo"]["aceptados"], ["principal@example.com"]
-                )
-                with self.assertRaises(ValueError):
+                assert (estado["correo"]["estado"]) == ("parcial")
+                assert (estado["correo"]["aceptados"]) == (["principal@example.com"])
+                with pytest.raises(ValueError):
                     correo.resolver_correo_incierto(estado, estado_path, "enviado")
                 correo.resolver_correo_incierto(estado, estado_path, "reintentar")
                 correo.enviar_resumen_guardado(
                     resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
                 )
-            self.assertEqual(
-                servidor.send_message.call_args_list[0].kwargs["to_addrs"],
-                ["principal@example.com", "copia@example.com"],
+            assert (servidor.send_message.call_args_list[0].kwargs["to_addrs"]) == (
+                ["principal@example.com", "copia@example.com"]
             )
-            self.assertEqual(
-                servidor.send_message.call_args_list[1].kwargs["to_addrs"],
-                ["copia@example.com"],
+            assert (servidor.send_message.call_args_list[1].kwargs["to_addrs"]) == (
+                ["copia@example.com"]
             )
-            self.assertEqual(estado["correo"]["estado"], "enviado")
+            assert (estado["correo"]["estado"]) == ("enviado")
             cargar.assert_called_once()
 
     def test_valida_destinatarios_obligatorios_y_sin_duplicados(self):
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             validar_destinatarios([], [])
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             validar_destinatarios(["destino@example.com"], ["DESTINO@example.com"])
-        self.assertEqual(
-            validar_destinatarios(["destino@example.com"], []),
-            (["destino@example.com"], []),
+        assert (validar_destinatarios(["destino@example.com"], [])) == (
+            (["destino@example.com"], [])
         )
 
     def test_zip_contiene_solo_los_documentos_indicados(self):
@@ -224,14 +215,14 @@ class PruebasCorreo(unittest.TestCase):
             destino = carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
             archivos.crear_zip_documentos(destino, [primero, segundo])
             with zipfile.ZipFile(destino) as archivo:
-                self.assertEqual(archivo.namelist(), ["Doc1.pdf", "Doc2.pdf"])
-                self.assertEqual(archivo.read("Doc1.pdf"), b"documento uno")
-                self.assertEqual(archivo.read("Doc2.pdf"), b"documento dos")
-            with self.assertRaises(FileExistsError):
+                assert (archivo.namelist()) == (["Doc1.pdf", "Doc2.pdf"])
+                assert (archivo.read("Doc1.pdf")) == (b"documento uno")
+                assert (archivo.read("Doc2.pdf")) == (b"documento dos")
+            with pytest.raises(FileExistsError):
                 archivos.crear_zip_documentos(destino, [primero])
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 archivos.crear_zip_documentos(carpeta / "vacio.zip", [])
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 archivos.crear_zip_documentos(
                     carpeta / "invalido.zip", [carpeta / "otro.txt"]
                 )
@@ -255,14 +246,14 @@ class PruebasCorreo(unittest.TestCase):
                 "convertir_documentos_pdf",
                 side_effect=RuntimeError("fallo de conversión"),
             ):
-                with self.assertRaisesRegex(RuntimeError, "fallo de conversión"):
+                with pytest.raises(RuntimeError, match="fallo de conversión"):
                     modulo_ejecucion.preparar_zip_ejecucion(
                         carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
                     )
-            self.assertFalse(
+            assert not (
                 (carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists()
             )
-            self.assertNotIn("hash_zip", estado)
+            assert ("hash_zip") not in (estado)
 
     def test_acepta_zip_antiguo_con_word(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -282,12 +273,11 @@ class PruebasCorreo(unittest.TestCase):
                 },
                 "hash_zip": archivos.hash_archivo(destino),
             }
-            self.assertEqual(
+            assert (
                 modulo_ejecucion.preparar_zip_ejecucion(
                     carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
-                ),
-                destino,
-            )
+                )
+            ) == (destino)
 
     def test_zip_incluye_original_si_falla_conversion_de_un_documento(self):
         with tempfile.TemporaryDirectory() as temporal:
@@ -312,18 +302,17 @@ class PruebasCorreo(unittest.TestCase):
                 carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
             )
             with zipfile.ZipFile(destino) as archivo:
-                self.assertEqual(
-                    archivo.namelist(), ["primero.pdf", "segundo.doc", "tercero.pdf"]
+                assert (archivo.namelist()) == (
+                    ["primero.pdf", "segundo.doc", "tercero.pdf"]
                 )
-                self.assertTrue(archivo.read("primero.pdf").startswith(b"%PDF-"))
-                self.assertEqual(archivo.read("segundo.doc"), segundo.read_bytes())
-                self.assertTrue(archivo.read("tercero.pdf").startswith(b"%PDF-"))
-            self.assertEqual(
+                assert archivo.read("primero.pdf").startswith(b"%PDF-")
+                assert (archivo.read("segundo.doc")) == (segundo.read_bytes())
+                assert archivo.read("tercero.pdf").startswith(b"%PDF-")
+            assert (
                 modulo_ejecucion.preparar_zip_ejecucion(
                     carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
-                ),
-                destino,
-            )
+                )
+            ) == (destino)
 
     def test_sin_navegador_zip_conserva_los_originales(self):
         with tempfile.TemporaryDirectory() as temporal:
@@ -347,8 +336,8 @@ class PruebasCorreo(unittest.TestCase):
                     carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
                 )
             with zipfile.ZipFile(destino) as archivo:
-                self.assertEqual(archivo.namelist(), ["evento.doc"])
-                self.assertEqual(archivo.read("evento.doc"), documento.read_bytes())
+                assert (archivo.namelist()) == (["evento.doc"])
+                assert (archivo.read("evento.doc")) == (documento.read_bytes())
 
     def test_no_envia_si_el_zip_fue_modificado(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -366,7 +355,7 @@ class PruebasCorreo(unittest.TestCase):
             }
             documentos_zip.write_bytes(b"modificado")
             with patch.object(correo, "conectar_correo") as conectar:
-                with self.assertRaisesRegex(ValueError, "ZIP.*cambió"):
+                with pytest.raises(ValueError, match="ZIP.*cambió"):
                     correo.enviar_resumen_guardado(
                         resumen,
                         date(2030, 11, 12),
@@ -391,11 +380,11 @@ class PruebasCorreo(unittest.TestCase):
                 }
             }
             documento.write_bytes(b"modificado")
-            with self.assertRaisesRegex(ValueError, "cambió"):
+            with pytest.raises(ValueError, match="cambió"):
                 modulo_ejecucion.preparar_zip_ejecucion(
                     carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
                 )
-            self.assertFalse(
+            assert not (
                 (carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists()
             )
 
@@ -408,7 +397,7 @@ class PruebasCorreo(unittest.TestCase):
             correo.enviar_correo_con_reintentos(
                 Path("resumen.xlsx"), date(2030, 11, 12), estado, Path("estado.json")
             )
-        self.assertEqual(enviar.call_count, 2)
+        assert (enviar.call_count) == (2)
         esperar.assert_called_once_with(30)
 
     def test_estado_incierto_solo_se_resuelve_explicitamente(self):
@@ -416,18 +405,16 @@ class PruebasCorreo(unittest.TestCase):
             estado_path = Path(carpeta) / "estado.json"
             estado = {"correo": {"estado": "enviando"}}
             correo.resolver_correo_incierto(estado, estado_path, "reintentar")
-            self.assertEqual(
-                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"],
-                "pendiente",
-            )
-            with self.assertRaises(ValueError):
+            assert (
+                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
+            ) == ("pendiente")
+            with pytest.raises(ValueError):
                 correo.resolver_correo_incierto(estado, estado_path, "enviado")
             estado["correo"]["estado"] = "enviando"
             correo.resolver_correo_incierto(estado, estado_path, "enviado")
-            self.assertEqual(
-                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"],
-                "enviado",
-            )
+            assert (
+                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
+            ) == ("enviado")
 
     def test_ejecucion_publica_y_reanuda_el_envio_pendiente(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -462,14 +449,14 @@ class PruebasCorreo(unittest.TestCase):
             ), patch(
                 "keyring.get_password", return_value=None
             ):
-                with self.assertRaisesRegex(RuntimeError, "credenciales de correo"):
+                with pytest.raises(RuntimeError, match="credenciales de correo"):
                     modulo_ejecucion.procesar_ejecucion(
                         None, raiz, fecha, habilitar_correo=True
                     )
             estado_path = raiz / ".datos" / "ejecuciones" / "2030-11-12" / "estado.json"
             estado = json.loads(estado_path.read_text(encoding="utf-8"))
-            self.assertTrue(estado["completado"])
-            self.assertEqual(estado["correo"]["estado"], "pendiente")
+            assert estado["completado"]
+            assert (estado["correo"]["estado"]) == ("pendiente")
             servidor = Mock()
             servidor.send_message.return_value = {}
             with patch.object(principal, "BASE", raiz), patch(
@@ -493,22 +480,19 @@ class PruebasCorreo(unittest.TestCase):
                 modulo_ejecucion.procesar_ejecucion(
                     None, raiz, fecha, habilitar_correo=True
                 )
-            self.assertEqual(
-                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"],
-                "enviado",
-            )
+            assert (
+                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
+            ) == ("enviado")
             servidor.send_message.assert_called_once()
-            self.assertEqual(
-                servidor.send_message.call_args.kwargs["to_addrs"],
-                ["destino@example.com", "copia@example.com"],
+            assert (servidor.send_message.call_args.kwargs["to_addrs"]) == (
+                ["destino@example.com", "copia@example.com"]
             )
             adjuntos = list(servidor.send_message.call_args.args[0].iter_attachments())
-            self.assertEqual(
-                [adjunto.get_filename() for adjunto in adjuntos],
+            assert ([adjunto.get_filename() for adjunto in adjuntos]) == (
                 [
                     "2030-11-12_Resumen_Licitaciones_Codelco.xlsx",
                     "2030-11-12_Documentos_Licitaciones_Codelco.zip",
-                ],
+                ]
             )
             archivo_zip = (
                 raiz
@@ -518,8 +502,8 @@ class PruebasCorreo(unittest.TestCase):
                 / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
             )
             with zipfile.ZipFile(archivo_zip) as archivo:
-                self.assertEqual(archivo.namelist(), ["evento.pdf"])
-                self.assertTrue(archivo.read("evento.pdf").startswith(b"%PDF-"))
+                assert (archivo.namelist()) == (["evento.pdf"])
+                assert archivo.read("evento.pdf").startswith(b"%PDF-")
 
     def test_prueba_manual_envia_resumen_existente_sin_ariba(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -571,18 +555,17 @@ class PruebasCorreo(unittest.TestCase):
                 "iniciar_sesion",
                 side_effect=AssertionError("no debe acceder a Ariba"),
             ):
-                self.assertEqual(principal.main(), 0)
-                self.assertEqual(principal.main(), 0)
+                assert (principal.main()) == (0)
+                assert (principal.main()) == (0)
             servidor.send_message.assert_called_once()
             mensaje = servidor.send_message.call_args.args[0]
-            self.assertEqual(mensaje["To"], "remitente@example.com")
-            self.assertEqual(
-                mensaje["Subject"], "Reporte Licitaciones Codelco Ariba (12-11-2030)"
+            assert (mensaje["To"]) == ("remitente@example.com")
+            assert (mensaje["Subject"]) == (
+                "Reporte Licitaciones Codelco Ariba (12-11-2030)"
             )
-            self.assertEqual(
-                [adjunto.get_filename() for adjunto in mensaje.iter_attachments()],
-                [resumen.name, "2030-11-12_Documentos_Licitaciones_Codelco.zip"],
-            )
+            assert (
+                [adjunto.get_filename() for adjunto in mensaje.iter_attachments()]
+            ) == ([resumen.name, "2030-11-12_Documentos_Licitaciones_Codelco.zip"])
             with patch.object(principal, "BASE", raiz), patch(
                 "src.ejecucion.BASE", raiz
             ), patch.object(correo, "BASE", raiz), patch.object(
@@ -604,15 +587,15 @@ class PruebasCorreo(unittest.TestCase):
             ), patch.object(
                 correo, "conectar_correo", return_value=servidor
             ):
-                self.assertEqual(principal.main(), 0)
-            self.assertEqual(servidor.send_message.call_count, 2)
+                assert (principal.main()) == (0)
+            assert (servidor.send_message.call_count) == (2)
             estado_prueba = json.loads(
                 (raiz / ".datos" / "pruebas-correo" / "2030-11-12.json").read_text(
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(estado_prueba["historial"][0]["estado"], "enviado")
-            self.assertEqual(estado_prueba["correo"]["estado"], "enviado")
+            assert (estado_prueba["historial"][0]["estado"]) == ("enviado")
+            assert (estado_prueba["correo"]["estado"]) == ("enviado")
 
     def test_envio_exitoso_se_registra_y_no_se_repite(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -647,14 +630,12 @@ class PruebasCorreo(unittest.TestCase):
                 correo.enviar_resumen_guardado(
                     resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
                 )
-            self.assertEqual(
-                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"],
-                "enviado",
-            )
+            assert (
+                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
+            ) == ("enviado")
             servidor.send_message.assert_called_once()
-            self.assertEqual(
-                servidor.send_message.call_args.kwargs["to_addrs"],
-                ["remitente@example.com"],
+            assert (servidor.send_message.call_args.kwargs["to_addrs"]) == (
+                ["remitente@example.com"]
             )
             servidor.close.assert_called_once()
 
@@ -687,16 +668,16 @@ class PruebasCorreo(unittest.TestCase):
             ), patch.object(
                 correo, "conectar_correo", return_value=servidor
             ):
-                with self.assertRaises(smtplib.SMTPServerDisconnected):
+                with pytest.raises(smtplib.SMTPServerDisconnected):
                     correo.enviar_resumen_guardado(
                         resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
                     )
                 estado = json.loads(estado_path.read_text(encoding="utf-8"))
-                with self.assertRaisesRegex(RuntimeError, "incierto"):
+                with pytest.raises(RuntimeError, match="incierto"):
                     correo.enviar_resumen_guardado(
                         resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
                     )
-            self.assertEqual(estado["correo"]["estado"], "enviando")
+            assert (estado["correo"]["estado"]) == ("enviando")
             servidor.send_message.assert_called_once()
 
     def test_rechazo_explicito_permite_reintentar(self):
@@ -728,14 +709,13 @@ class PruebasCorreo(unittest.TestCase):
             ), patch.object(
                 correo, "conectar_correo", return_value=servidor
             ):
-                with self.assertRaises(smtplib.SMTPDataError):
+                with pytest.raises(smtplib.SMTPDataError):
                     correo.enviar_resumen_guardado(
                         resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
                     )
-            self.assertEqual(
-                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"],
-                "pendiente",
-            )
+            assert (
+                json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
+            ) == ("pendiente")
 
     def test_mensaje_solo_para_el_remitente_con_dos_adjuntos(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -753,46 +733,44 @@ class PruebasCorreo(unittest.TestCase):
                 ["remitente@example.com"],
                 [],
             )
-        self.assertEqual(mensaje["From"], "remitente@example.com")
-        self.assertEqual(mensaje["To"], "remitente@example.com")
-        self.assertIsNone(mensaje["Cc"])
-        self.assertEqual(
-            mensaje["Subject"], "Reporte Licitaciones Codelco Ariba (12-11-2030)"
+        assert (mensaje["From"]) == ("remitente@example.com")
+        assert (mensaje["To"]) == ("remitente@example.com")
+        assert (mensaje["Cc"]) is None
+        assert (mensaje["Subject"]) == (
+            "Reporte Licitaciones Codelco Ariba (12-11-2030)"
         )
-        self.assertEqual(
-            mensaje.get_body(preferencelist=("plain",)).get_content().strip(),
-            mensaje["Subject"],
+        assert (mensaje.get_body(preferencelist=("plain",)).get_content().strip()) == (
+            mensaje["Subject"]
         )
         adjuntos = list(mensaje.iter_attachments())
-        self.assertEqual(len(adjuntos), 2)
-        self.assertEqual(adjuntos[0].get_filename(), resumen.name)
-        self.assertEqual(adjuntos[0].get_payload(decode=True), b"xlsx-ficticio")
-        self.assertEqual(adjuntos[1].get_filename(), documentos_zip.name)
-        self.assertEqual(adjuntos[1].get_payload(decode=True), b"zip-ficticio")
+        assert (len(adjuntos)) == (2)
+        assert (adjuntos[0].get_filename()) == (resumen.name)
+        assert (adjuntos[0].get_payload(decode=True)) == (b"xlsx-ficticio")
+        assert (adjuntos[1].get_filename()) == (documentos_zip.name)
+        assert (adjuntos[1].get_payload(decode=True)) == (b"zip-ficticio")
 
     def test_conexion_usa_tls_y_credenciales_configuradas(self):
         servidor = Mock()
         with patch("src.correo.smtplib.SMTP", return_value=servidor) as smtp:
-            self.assertIs(
-                conectar_correo("remitente@example.com", "clave-ficticia"), servidor
+            assert (conectar_correo("remitente@example.com", "clave-ficticia")) is (
+                servidor
             )
-        smtp.assert_called_once_with("smtp.gmail.com", 587, timeout=30)
-        self.assertEqual(servidor.ehlo.call_count, 2)
+        smtp.assert_called_once_with("smtp.gmail.com", 587, timeout=120)
+        assert (servidor.ehlo.call_count) == (2)
         servidor.starttls.assert_called_once()
         servidor.login.assert_called_once_with(
             "remitente@example.com", "clave-ficticia"
         )
 
-    def test_direccion_no_admite_varios_destinatarios(self):
-        for invalida in (
+    @pytest.mark.parametrize(
+        "invalida",
+        (
             "",
             "uno@example.com, otro@example.com",
             "Nombre <uno@example.com>",
             "uno@example.com\nCc: otro@example.com",
-        ):
-            with self.subTest(invalida=invalida), self.assertRaises(ValueError):
-                validar_remitente(invalida)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        ),
+    )
+    def test_direccion_no_admite_varios_destinatarios(self, invalida: str) -> None:
+        with pytest.raises(ValueError):
+            validar_remitente(invalida)

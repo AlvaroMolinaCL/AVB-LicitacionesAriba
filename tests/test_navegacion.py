@@ -1,6 +1,5 @@
 import os
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -31,7 +30,7 @@ DETALLE = """<html><body><span>Doc1 - 6001</span><button onclick="location.href=
 DOCUMENTO = """<!-- class: ariba.sourcing.rfxui.PrintRFXEncode --><html><table><tr><td>Fecha de vencimiento</td><td>24/11/2026 15:00</td></tr></table></html>"""
 
 
-class PruebasNavegacion(unittest.TestCase):
+class TestNavegacion:
     def test_login_con_sesion_de_propuestas_existente(self):
         carpeta_programa = Path(__file__).resolve().parent.parent
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
@@ -47,7 +46,7 @@ class PruebasNavegacion(unittest.TestCase):
                 ),
             )
             iniciar_sesion(pagina, None, None)
-            self.assertTrue(pagina.get_by_role("link", name="Más...").is_visible())
+            assert pagina.get_by_role("link", name="Más...").is_visible()
             navegador.close()
 
     def test_seleccion_directa_de_codelco(self):
@@ -66,7 +65,7 @@ class PruebasNavegacion(unittest.TestCase):
             )
             with patch("src.ariba.esperar_marco_eventos"):
                 seleccionar_codelco(pagina)
-            self.assertEqual(pagina.locator("[data-seleccionado]").count(), 1)
+            assert (pagina.locator("[data-seleccionado]").count()) == (1)
             navegador.close()
 
     def test_login_con_sesion_existente_tras_usuario(self):
@@ -89,7 +88,7 @@ class PruebasNavegacion(unittest.TestCase):
 
             pagina.route("**/*", respuesta)
             iniciar_sesion(pagina, "usuario@ejemplo.com", "clave-ficticia")
-            self.assertTrue(pagina.url.endswith("/Supplier.aw/panel"))
+            assert pagina.url.endswith("/Supplier.aw/panel")
             navegador.close()
 
     def test_login_con_usuario_y_contrasena_en_la_misma_pagina(self):
@@ -113,7 +112,7 @@ class PruebasNavegacion(unittest.TestCase):
 
             pagina.route("**/*", respuesta)
             iniciar_sesion(pagina, "usuario@ejemplo.com", "clave-ficticia")
-            self.assertTrue(pagina.url.endswith("/dashboard"))
+            assert pagina.url.endswith("/dashboard")
             navegador.close()
 
     def test_flujo_de_login_exportacion_y_descarga(self):
@@ -169,17 +168,13 @@ class PruebasNavegacion(unittest.TestCase):
             iniciar_sesion(pagina, "usuario@ejemplo.com", "clave-ficticia")
             archivo = Path(carpeta) / "data.xls"
             exportar_eventos(pagina, archivo)
-            self.assertEqual(archivo.read_text(), "exportacion")
+            assert (archivo.read_text()) == ("exportacion")
             evento = SimpleNamespace(
                 identificador="Doc1",
                 titulo="6001",
                 enlace="https://service.ariba.com/evento",
             )
             documento, aviso = descargar_evento(pagina, evento, Path(carpeta))
-            self.assertIsNone(aviso)
-            self.assertEqual(documento.name, "24-11 Doc1 - 6001.doc")
+            assert (aviso) is None
+            assert (documento.name) == ("24-11 Doc1 - 6001.doc")
             navegador.close()
-
-
-if __name__ == "__main__":
-    unittest.main()
