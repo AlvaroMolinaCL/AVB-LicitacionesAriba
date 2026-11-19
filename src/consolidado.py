@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import xlsxwriter
 
 from openpyxl import load_workbook
+from src.reportes import completar_hoja_reporte
 
 COLUMNAS = (
     "Licitación",
@@ -42,7 +43,7 @@ def extraer_documento(ruta: Path, es_sr: bool) -> list[dict[str, str]]:
         nombre = texto_limpio(titulo.get_text(" ", strip=True))
         normal = re.match(r"^(\d+)\s+", nombre)
         subitem = re.match(r"^\d+(?:\.\d+){2,}\s+", nombre)
-        if not (subitem or (not es_sr and normal and int(normal.group(1)) >= 7)):
+        if not (subitem or normal):
             continue
         tabla = titulo.find_parent("table")
         if tabla is None:
@@ -88,7 +89,16 @@ def extraer_documento(ruta: Path, es_sr: bool) -> list[dict[str, str]]:
             elif "texto largo" in etiqueta:
                 tiene_campos_item = True
                 texto_largo = valor
-        if tiene_campos_item or (subitem and texto_largo != "N/A"):
+        numero_admitido = subitem or (
+            normal
+            and (
+                (not es_sr and int(normal.group(1)) >= 7)
+                or (material != "N/A" and cantidad != "N/A")
+            )
+        )
+        if numero_admitido and (
+            tiene_campos_item or (subitem and texto_largo != "N/A")
+        ):
             resultado.append(
                 dict(
                     zip(
@@ -139,7 +149,11 @@ def extraer_documento(ruta: Path, es_sr: bool) -> list[dict[str, str]]:
 
 
 def generar_consolidado(
-    ruta: Path, documentos: list[tuple[Path, bool]], eventos_por_documento=None
+    ruta: Path,
+    documentos: list[tuple[Path, bool]],
+    eventos_por_documento=None,
+    eventos_reporte=None,
+    anteriores=None,
 ) -> int:
     if not documentos:
         raise ValueError("No hay documentos para generar el consolidado")
@@ -241,6 +255,13 @@ def generar_consolidado(
                 hoja.set_column(numero, numero, ancho)
             hoja.autofilter(0, 0, len(filas), len(COLUMNAS) - 1)
             hoja.freeze_panes(1, 0)
+    if eventos_reporte is not None:
+        libro = load_workbook(ruta)
+        completar_hoja_reporte(
+            libro.create_sheet("Reporte"), eventos_reporte, anteriores or []
+        )
+        libro.save(ruta)
+        libro.close()
     return len(filas)
 
 
@@ -253,6 +274,10 @@ def validar_formato_resumen(ruta: Path) -> None:
         if encabezados != COLUMNAS:
             raise ValueError(
                 "El resumen pendiente tiene un formato anterior; requiere revisión antes de enviarlo"
+            )
+        if "Reporte" not in libro.sheetnames:
+            raise ValueError(
+                "El resumen pendiente no contiene la hoja Reporte; requiere revisión"
             )
     finally:
         libro.close()

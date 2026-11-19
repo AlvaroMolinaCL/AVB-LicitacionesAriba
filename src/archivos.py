@@ -2,7 +2,6 @@ import hashlib
 import json
 import shutil
 import sys
-import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -31,18 +30,6 @@ def copiar_sin_sobrescribir(origen: Path, destino: Path) -> None:
         return
     with origen.open("rb") as entrada, destino.open("xb") as salida:
         shutil.copyfileobj(entrada, salida)
-
-
-def crear_zip_documentos(destino: Path, documentos: list[Path]) -> None:
-    if not documentos or any(
-        documento.suffix.casefold() not in {".pdf", ".doc"} for documento in documentos
-    ):
-        raise ValueError("El ZIP requiere documentos PDF o Word de la ejecución")
-    if len({documento.name.casefold() for documento in documentos}) != len(documentos):
-        raise ValueError("Hay documentos con nombres duplicados para el ZIP")
-    with zipfile.ZipFile(destino, "x", compression=zipfile.ZIP_DEFLATED) as archivo:
-        for documento in documentos:
-            archivo.write(documento, arcname=documento.name)
 
 
 def guardar_estado(ruta: Path, estado: dict) -> None:

@@ -80,14 +80,19 @@ class TestCorreo:
         ):
             raiz = Path(carpeta)
             resumen = raiz / "resumen.xlsx"
-            documentos_zip = raiz / "documentos.zip"
+            documentos_zip = raiz / "documentos.pdf"
             resumen.write_bytes(b"resumen")
             documentos_zip.write_bytes(b"zip")
             estado = {
                 "correo": {
                     "estado": "pendiente",
                     "sha256": archivos.hash_archivo(resumen),
-                    "sha256_zip": archivos.hash_archivo(documentos_zip),
+                    "sha256_documentos": [
+                        {
+                            "archivo": documentos_zip.name,
+                            "sha256": archivos.hash_archivo(documentos_zip),
+                        }
+                    ],
                 }
             }
             with patch(
@@ -100,7 +105,7 @@ class TestCorreo:
                         date(2030, 11, 12),
                         estado,
                         raiz / "estado.json",
-                        documentos_zip,
+                        [documentos_zip],
                     )
             conectar.assert_not_called()
             assert (estado["correo"]["estado"]) == ("pendiente")
@@ -129,14 +134,14 @@ class TestCorreo:
     def test_mensaje_usa_destinatarios_y_copia_configurados(self):
         with tempfile.TemporaryDirectory() as carpeta:
             resumen = Path(carpeta) / "resumen.xlsx"
-            documentos_zip = Path(carpeta) / "documentos.zip"
+            documentos_zip = Path(carpeta) / "documentos.pdf"
             resumen.write_bytes(b"resumen")
             documentos_zip.write_bytes(b"zip")
             mensaje = crear_mensaje(
                 "remitente@example.com",
                 date(2030, 11, 12),
                 resumen,
-                documentos_zip,
+                [documentos_zip],
                 ["destino@example.com"],
                 ["copia@example.com"],
             )
@@ -144,11 +149,45 @@ class TestCorreo:
             assert (mensaje["Cc"]) == ("copia@example.com")
             assert (len(list(mensaje.iter_attachments()))) == (2)
 
+    def test_mensaje_adjunta_varios_pdf_y_original_si_falla_conversion(self):
+        with tempfile.TemporaryDirectory() as temporal:
+            carpeta = Path(temporal)
+            resumen = carpeta / "resumen.xlsx"
+            resumen.write_bytes(b"resumen")
+            documentos = [
+                carpeta / "uno.pdf",
+                carpeta / "dos.doc",
+                carpeta / "tres.pdf",
+            ]
+            for documento in documentos:
+                documento.write_bytes(documento.name.encode())
+            mensaje = crear_mensaje(
+                "remitente@example.com",
+                date(2030, 11, 12),
+                resumen,
+                documentos,
+                ["destino@example.com"],
+                [],
+            )
+            adjuntos = list(mensaje.iter_attachments())
+            assert [adjunto.get_filename() for adjunto in adjuntos] == [
+                resumen.name,
+                *[documento.name for documento in documentos],
+            ]
+            assert [adjunto.get_content_type() for adjunto in adjuntos[1:]] == [
+                "application/pdf",
+                "application/msword",
+                "application/pdf",
+            ]
+            assert [adjunto.get_payload(decode=True) for adjunto in adjuntos[1:]] == [
+                documento.read_bytes() for documento in documentos
+            ]
+
     def test_rechazo_parcial_reintenta_solo_destinatarios_rechazados(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
             resumen = carpeta / "resumen.xlsx"
-            documentos_zip = carpeta / "documentos.zip"
+            documentos_zip = carpeta / "documentos.pdf"
             resumen.write_bytes(b"resumen")
             documentos_zip.write_bytes(b"zip")
             estado_path = carpeta / "estado.json"
@@ -156,7 +195,12 @@ class TestCorreo:
                 "correo": {
                     "estado": "pendiente",
                     "sha256": archivos.hash_archivo(resumen),
-                    "sha256_zip": archivos.hash_archivo(documentos_zip),
+                    "sha256_documentos": [
+                        {
+                            "archivo": documentos_zip.name,
+                            "sha256": archivos.hash_archivo(documentos_zip),
+                        }
+                    ],
                 }
             }
             servidor = Mock()
@@ -176,7 +220,11 @@ class TestCorreo:
             ):
                 with pytest.raises(RuntimeError, match="algunos destinatarios"):
                     correo.enviar_resumen_guardado(
-                        resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                        resumen,
+                        date(2030, 11, 12),
+                        estado,
+                        estado_path,
+                        [documentos_zip],
                     )
                 assert (estado["correo"]["estado"]) == ("parcial")
                 assert (estado["correo"]["aceptados"]) == (["principal@example.com"])
@@ -184,7 +232,7 @@ class TestCorreo:
                     correo.resolver_correo_incierto(estado, estado_path, "enviado")
                 correo.resolver_correo_incierto(estado, estado_path, "reintentar")
                 correo.enviar_resumen_guardado(
-                    resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                    resumen, date(2030, 11, 12), estado, estado_path, [documentos_zip]
                 )
             assert (servidor.send_message.call_args_list[0].kwargs["to_addrs"]) == (
                 ["principal@example.com", "copia@example.com"]
@@ -204,30 +252,7 @@ class TestCorreo:
             (["destino@example.com"], [])
         )
 
-    def test_zip_contiene_solo_los_documentos_indicados(self):
-        with tempfile.TemporaryDirectory() as carpeta:
-            carpeta = Path(carpeta)
-            primero = carpeta / "Doc1.pdf"
-            segundo = carpeta / "Doc2.pdf"
-            primero.write_bytes(b"documento uno")
-            segundo.write_bytes(b"documento dos")
-            (carpeta / "otro.doc").write_bytes(b"no incluido")
-            destino = carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
-            archivos.crear_zip_documentos(destino, [primero, segundo])
-            with zipfile.ZipFile(destino) as archivo:
-                assert (archivo.namelist()) == (["Doc1.pdf", "Doc2.pdf"])
-                assert (archivo.read("Doc1.pdf")) == (b"documento uno")
-                assert (archivo.read("Doc2.pdf")) == (b"documento dos")
-            with pytest.raises(FileExistsError):
-                archivos.crear_zip_documentos(destino, [primero])
-            with pytest.raises(ValueError):
-                archivos.crear_zip_documentos(carpeta / "vacio.zip", [])
-            with pytest.raises(ValueError):
-                archivos.crear_zip_documentos(
-                    carpeta / "invalido.zip", [carpeta / "otro.txt"]
-                )
-
-    def test_fallo_conversion_no_crea_zip(self):
+    def test_fallo_conversion_no_registra_adjuntos(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
             documento = carpeta / "evento.doc"
@@ -247,20 +272,18 @@ class TestCorreo:
                 side_effect=RuntimeError("fallo de conversión"),
             ):
                 with pytest.raises(RuntimeError, match="fallo de conversión"):
-                    modulo_ejecucion.preparar_zip_ejecucion(
-                        carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                    modulo_ejecucion.preparar_documentos_ejecucion(
+                        carpeta, estado, carpeta / "estado.json"
                     )
-            assert not (
-                (carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists()
-            )
-            assert ("hash_zip") not in (estado)
+            assert not ((carpeta / "evento.pdf").exists())
+            assert "documentos_adjuntos" not in estado
 
-    def test_acepta_zip_antiguo_con_word(self):
+    def test_correo_pendiente_antiguo_requiere_revision(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
             documento = carpeta / "evento.doc"
             documento.write_text("<html>documento</html>", encoding="utf-8")
-            destino = carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
+            destino = carpeta / "evento.pdf"
             with zipfile.ZipFile(destino, "w") as archivo:
                 archivo.write(documento, documento.name)
             estado = {
@@ -271,13 +294,15 @@ class TestCorreo:
                         "sha256": archivos.hash_archivo(documento),
                     }
                 },
-                "hash_zip": archivos.hash_archivo(destino),
+                "correo": {
+                    "estado": "pendiente",
+                    "sha256_zip": archivos.hash_archivo(destino),
+                },
             }
-            assert (
-                modulo_ejecucion.preparar_zip_ejecucion(
-                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+            with pytest.raises(ValueError, match="formato ZIP anterior"):
+                modulo_ejecucion.preparar_documentos_correo(
+                    estado, carpeta / "estado.json"
                 )
-            ) == (destino)
 
     def test_zip_incluye_original_si_falla_conversion_de_un_documento(self):
         with tempfile.TemporaryDirectory() as temporal:
@@ -298,19 +323,20 @@ class TestCorreo:
                     for documento in (primero, segundo, tercero)
                 }
             }
-            destino = modulo_ejecucion.preparar_zip_ejecucion(
-                carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+            destino = modulo_ejecucion.preparar_documentos_ejecucion(
+                carpeta, estado, carpeta / "estado.json"
             )
-            with zipfile.ZipFile(destino) as archivo:
-                assert (archivo.namelist()) == (
-                    ["primero.pdf", "segundo.doc", "tercero.pdf"]
-                )
-                assert archivo.read("primero.pdf").startswith(b"%PDF-")
-                assert (archivo.read("segundo.doc")) == (segundo.read_bytes())
-                assert archivo.read("tercero.pdf").startswith(b"%PDF-")
+            assert [archivo.name for archivo in destino] == [
+                "primero.pdf",
+                "segundo.doc",
+                "tercero.pdf",
+            ]
+            assert destino[0].read_bytes().startswith(b"%PDF-")
+            assert destino[1].read_bytes() == segundo.read_bytes()
+            assert destino[2].read_bytes().startswith(b"%PDF-")
             assert (
-                modulo_ejecucion.preparar_zip_ejecucion(
-                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                modulo_ejecucion.preparar_documentos_ejecucion(
+                    carpeta, estado, carpeta / "estado.json"
                 )
             ) == (destino)
 
@@ -332,36 +358,39 @@ class TestCorreo:
                 "src.pdf.sync_playwright",
                 side_effect=PlaywrightError("navegador no disponible"),
             ):
-                destino = modulo_ejecucion.preparar_zip_ejecucion(
-                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                destino = modulo_ejecucion.preparar_documentos_ejecucion(
+                    carpeta, estado, carpeta / "estado.json"
                 )
-            with zipfile.ZipFile(destino) as archivo:
-                assert (archivo.namelist()) == (["evento.doc"])
-                assert (archivo.read("evento.doc")) == (documento.read_bytes())
+            assert destino == [documento]
 
     def test_no_envia_si_el_zip_fue_modificado(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
             resumen = carpeta / "resumen.xlsx"
             resumen.write_bytes(b"resumen")
-            documentos_zip = carpeta / "documentos.zip"
+            documentos_zip = carpeta / "documentos.pdf"
             documentos_zip.write_bytes(b"original")
             estado = {
                 "correo": {
                     "estado": "pendiente",
                     "sha256": archivos.hash_archivo(resumen),
-                    "sha256_zip": archivos.hash_archivo(documentos_zip),
+                    "sha256_documentos": [
+                        {
+                            "archivo": documentos_zip.name,
+                            "sha256": archivos.hash_archivo(documentos_zip),
+                        }
+                    ],
                 }
             }
             documentos_zip.write_bytes(b"modificado")
             with patch.object(correo, "conectar_correo") as conectar:
-                with pytest.raises(ValueError, match="ZIP.*cambió"):
+                with pytest.raises(ValueError, match="adjuntos.*cambiaron"):
                     correo.enviar_resumen_guardado(
                         resumen,
                         date(2030, 11, 12),
                         estado,
                         carpeta / "estado.json",
-                        documentos_zip,
+                        [documentos_zip],
                     )
             conectar.assert_not_called()
 
@@ -381,12 +410,10 @@ class TestCorreo:
             }
             documento.write_bytes(b"modificado")
             with pytest.raises(ValueError, match="cambió"):
-                modulo_ejecucion.preparar_zip_ejecucion(
-                    carpeta, date(2030, 11, 12), estado, carpeta / "estado.json"
+                modulo_ejecucion.preparar_documentos_ejecucion(
+                    carpeta, estado, carpeta / "estado.json"
                 )
-            assert not (
-                (carpeta / "2030-11-12_Documentos_Licitaciones_Codelco.zip").exists()
-            )
+            assert not ((carpeta / "evento.pdf").exists())
 
     def test_fallo_temporal_antes_de_enviar_reintenta_sin_duplicar(self):
         estado = {"correo": {"estado": "pendiente"}}
@@ -491,19 +518,24 @@ class TestCorreo:
             assert ([adjunto.get_filename() for adjunto in adjuntos]) == (
                 [
                     "2030-11-12_Resumen_Licitaciones_Codelco.xlsx",
-                    "2030-11-12_Documentos_Licitaciones_Codelco.zip",
+                    "evento.pdf",
                 ]
             )
-            archivo_zip = (
+            assert adjuntos[1].get_content_type() == "application/pdf"
+            assert adjuntos[1].get_payload(decode=True).startswith(b"%PDF-")
+            from openpyxl import load_workbook
+
+            libro = load_workbook(
                 raiz
-                / ".datos"
-                / "ejecuciones"
-                / "2030-11-12"
-                / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
+                / "resumen_licitaciones"
+                / "2030-11-12_Resumen_Licitaciones_Codelco.xlsx"
             )
-            with zipfile.ZipFile(archivo_zip) as archivo:
-                assert (archivo.namelist()) == (["evento.pdf"])
-                assert archivo.read("evento.pdf").startswith(b"%PDF-")
+            assert libro.sheetnames == ["Consolidado", "Reporte"]
+            assert libro["Reporte"]["B2"].value == "Doc1"
+            assert libro["Reporte"]["E2"].value == "Doc0"
+            assert libro["Reporte"]["F2"].value == "Sí"
+            assert libro["Reporte"]["A2"].hyperlink.target == "https://s3.ariba.com/1"
+            libro.close()
 
     def test_prueba_manual_envia_resumen_existente_sin_ariba(self):
         with tempfile.TemporaryDirectory() as carpeta:
@@ -511,7 +543,13 @@ class TestCorreo:
             resumenes = raiz / "resumen_licitaciones"
             resumenes.mkdir()
             resumen = resumenes / "2030-11-12_Resumen_Licitaciones_Codelco.xlsx"
-            resumen.write_bytes(b"xlsx-ficticio")
+            libro = Workbook()
+            from src.consolidado import COLUMNAS
+
+            libro.active.append(COLUMNAS)
+            libro.create_sheet("Reporte")
+            libro.save(resumen)
+            libro.close()
             ejecucion = raiz / ".datos" / "ejecuciones" / "2030-11-12"
             ejecucion.mkdir(parents=True)
             documento = ejecucion / "evento.doc"
@@ -565,7 +603,7 @@ class TestCorreo:
             )
             assert (
                 [adjunto.get_filename() for adjunto in mensaje.iter_attachments()]
-            ) == ([resumen.name, "2030-11-12_Documentos_Licitaciones_Codelco.zip"])
+            ) == ([resumen.name, "evento.pdf"])
             with patch.object(principal, "BASE", raiz), patch(
                 "src.ejecucion.BASE", raiz
             ), patch.object(correo, "BASE", raiz), patch.object(
@@ -602,14 +640,19 @@ class TestCorreo:
             carpeta = Path(carpeta)
             resumen = carpeta / "resumen.xlsx"
             resumen.write_bytes(b"xlsx-ficticio")
-            documentos_zip = carpeta / "documentos.zip"
+            documentos_zip = carpeta / "documentos.pdf"
             documentos_zip.write_bytes(b"zip-ficticio")
             estado_path = carpeta / "estado.json"
             estado = {
                 "correo": {
                     "estado": "pendiente",
                     "sha256": archivos.hash_archivo(resumen),
-                    "sha256_zip": archivos.hash_archivo(documentos_zip),
+                    "sha256_documentos": [
+                        {
+                            "archivo": documentos_zip.name,
+                            "sha256": archivos.hash_archivo(documentos_zip),
+                        }
+                    ],
                 }
             }
             servidor = Mock()
@@ -625,10 +668,10 @@ class TestCorreo:
                 correo, "conectar_correo", return_value=servidor
             ):
                 correo.enviar_resumen_guardado(
-                    resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                    resumen, date(2030, 11, 12), estado, estado_path, [documentos_zip]
                 )
                 correo.enviar_resumen_guardado(
-                    resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                    resumen, date(2030, 11, 12), estado, estado_path, [documentos_zip]
                 )
             assert (
                 json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
@@ -644,14 +687,19 @@ class TestCorreo:
             carpeta = Path(carpeta)
             resumen = carpeta / "resumen.xlsx"
             resumen.write_bytes(b"xlsx-ficticio")
-            documentos_zip = carpeta / "documentos.zip"
+            documentos_zip = carpeta / "documentos.pdf"
             documentos_zip.write_bytes(b"zip-ficticio")
             estado_path = carpeta / "estado.json"
             estado = {
                 "correo": {
                     "estado": "pendiente",
                     "sha256": archivos.hash_archivo(resumen),
-                    "sha256_zip": archivos.hash_archivo(documentos_zip),
+                    "sha256_documentos": [
+                        {
+                            "archivo": documentos_zip.name,
+                            "sha256": archivos.hash_archivo(documentos_zip),
+                        }
+                    ],
                 }
             }
             servidor = Mock()
@@ -670,12 +718,20 @@ class TestCorreo:
             ):
                 with pytest.raises(smtplib.SMTPServerDisconnected):
                     correo.enviar_resumen_guardado(
-                        resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                        resumen,
+                        date(2030, 11, 12),
+                        estado,
+                        estado_path,
+                        [documentos_zip],
                     )
                 estado = json.loads(estado_path.read_text(encoding="utf-8"))
                 with pytest.raises(RuntimeError, match="incierto"):
                     correo.enviar_resumen_guardado(
-                        resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                        resumen,
+                        date(2030, 11, 12),
+                        estado,
+                        estado_path,
+                        [documentos_zip],
                     )
             assert (estado["correo"]["estado"]) == ("enviando")
             servidor.send_message.assert_called_once()
@@ -685,14 +741,19 @@ class TestCorreo:
             carpeta = Path(carpeta)
             resumen = carpeta / "resumen.xlsx"
             resumen.write_bytes(b"xlsx-ficticio")
-            documentos_zip = carpeta / "documentos.zip"
+            documentos_zip = carpeta / "documentos.pdf"
             documentos_zip.write_bytes(b"zip-ficticio")
             estado_path = carpeta / "estado.json"
             estado = {
                 "correo": {
                     "estado": "pendiente",
                     "sha256": archivos.hash_archivo(resumen),
-                    "sha256_zip": archivos.hash_archivo(documentos_zip),
+                    "sha256_documentos": [
+                        {
+                            "archivo": documentos_zip.name,
+                            "sha256": archivos.hash_archivo(documentos_zip),
+                        }
+                    ],
                 }
             }
             servidor = Mock()
@@ -711,7 +772,11 @@ class TestCorreo:
             ):
                 with pytest.raises(smtplib.SMTPDataError):
                     correo.enviar_resumen_guardado(
-                        resumen, date(2030, 11, 12), estado, estado_path, documentos_zip
+                        resumen,
+                        date(2030, 11, 12),
+                        estado,
+                        estado_path,
+                        [documentos_zip],
                     )
             assert (
                 json.loads(estado_path.read_text(encoding="utf-8"))["correo"]["estado"]
@@ -721,15 +786,13 @@ class TestCorreo:
         with tempfile.TemporaryDirectory() as carpeta:
             resumen = Path(carpeta) / "2030-11-12_Resumen_Licitaciones_Codelco.xlsx"
             resumen.write_bytes(b"xlsx-ficticio")
-            documentos_zip = (
-                Path(carpeta) / "2030-11-12_Documentos_Licitaciones_Codelco.zip"
-            )
+            documentos_zip = Path(carpeta) / "evento.pdf"
             documentos_zip.write_bytes(b"zip-ficticio")
             mensaje = crear_mensaje(
                 "remitente@example.com",
                 date(2030, 11, 12),
                 resumen,
-                documentos_zip,
+                [documentos_zip],
                 ["remitente@example.com"],
                 [],
             )

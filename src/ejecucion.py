@@ -5,7 +5,6 @@ import shutil
 import sys
 import tempfile
 import time
-import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -28,7 +27,6 @@ from src.ariba import (
 from src.archivos import (
     bloqueo_ejecucion,
     copiar_sin_sobrescribir,
-    crear_zip_documentos,
     guardar_estado,
     hash_archivo,
 )
@@ -89,9 +87,9 @@ def asegurar_resultado(
     guardar_estado(estado_path, estado)
 
 
-def preparar_zip_ejecucion(
-    carpeta: Path, fecha: date, estado: dict, estado_path: Path
-) -> Path:
+def preparar_documentos_ejecucion(
+    carpeta: Path, estado: dict, estado_path: Path
+) -> list[Path]:
     documentos = []
     for registro in estado["eventos"].values():
         if registro["estado"] != "descargado":
@@ -103,43 +101,60 @@ def preparar_zip_ejecucion(
         if hash_archivo(documento) != registro["sha256"]:
             raise ValueError(f"El documento cambió desde su descarga: {nombre}")
         documentos.append(documento)
-    destino = carpeta / f"{fecha.isoformat()}_Documentos_Licitaciones_Codelco.zip"
-
-    def generar_zip(ruta: Path) -> None:
-        with tempfile.TemporaryDirectory(dir=ruta.parent) as temporal:
-            pdfs = convertir_documentos_pdf(documentos, Path(temporal))
-            crear_zip_documentos(ruta, pdfs)
-
-    asegurar_resultado(
-        destino,
-        "hash_zip",
-        generar_zip,
-        estado,
-        estado_path,
-    )
-    with zipfile.ZipFile(destino) as archivo:
-        nombres = archivo.namelist()
-        if (
-            len(nombres) != len(documentos)
-            or any(
-                nombre not in {documento.name, documento.with_suffix(".pdf").name}
-                for nombre, documento in zip(nombres, documentos)
-            )
-            or len({nombre.casefold() for nombre in nombres}) != len(nombres)
-        ):
+    if not documentos:
+        raise ValueError("No hay documentos para adjuntar")
+    if "documentos_adjuntos" not in estado:
+        with tempfile.TemporaryDirectory(dir=carpeta) as temporal:
+            convertidos = convertir_documentos_pdf(documentos, Path(temporal))
+            if len(convertidos) != len(documentos):
+                raise ValueError("La conversión no devolvió todos los documentos")
+            adjuntos = []
+            for original, convertido in zip(documentos, convertidos):
+                if convertido == original:
+                    adjunto = original
+                elif (
+                    convertido.parent == Path(temporal)
+                    and convertido.name == original.with_suffix(".pdf").name
+                ):
+                    adjunto = carpeta / convertido.name
+                    copiar_sin_sobrescribir(convertido, adjunto)
+                else:
+                    raise ValueError("La conversión devolvió un documento inesperado")
+                adjuntos.append(
+                    {"archivo": adjunto.name, "sha256": hash_archivo(adjunto)}
+                )
+        estado["documentos_adjuntos"] = adjuntos
+        guardar_estado(estado_path, estado)
+    registros = estado["documentos_adjuntos"]
+    if len(registros) != len(documentos):
+        raise ValueError("Faltan documentos adjuntos registrados")
+    adjuntos = []
+    for original, registro in zip(documentos, registros):
+        nombre = registro["archivo"]
+        if nombre not in {original.name, original.with_suffix(".pdf").name}:
             raise ValueError(
-                "El ZIP existente no contiene los documentos esperados; requiere revisión"
+                "El documento adjunto registrado no corresponde al original"
             )
-    return destino
+        adjunto = carpeta / nombre
+        if not adjunto.is_file() or hash_archivo(adjunto) != registro["sha256"]:
+            raise ValueError(f"El documento adjunto cambió: {nombre}")
+        adjuntos.append(adjunto)
+    if len({adjunto.name.casefold() for adjunto in adjuntos}) != len(adjuntos):
+        raise ValueError("Hay documentos adjuntos con nombres duplicados")
+    return adjuntos
 
 
-def preparar_zip_correo(fecha: date, estado: dict, estado_path: Path) -> Path | None:
+def preparar_documentos_correo(estado: dict, estado_path: Path) -> list[Path] | None:
     if estado["correo"]["estado"] != "pendiente":
         return None
-    destino = preparar_zip_ejecucion(estado_path.parent, fecha, estado, estado_path)
+    if "sha256_zip" in estado["correo"] and "documentos_adjuntos" not in estado:
+        raise ValueError(
+            "El correo pendiente usa el formato ZIP anterior; requiere revisión"
+        )
+    destino = preparar_documentos_ejecucion(estado_path.parent, estado, estado_path)
     registro = estado["correo"]
-    if "sha256_zip" not in registro:
-        registro["sha256_zip"] = estado["hash_zip"]
+    if "sha256_documentos" not in registro:
+        registro["sha256_documentos"] = estado["documentos_adjuntos"]
         guardar_estado(estado_path, estado)
     return destino
 
@@ -286,9 +301,9 @@ def procesar_ejecucion(
                 / "resumen_licitaciones"
                 / f"{hoy.isoformat()}_Resumen_Licitaciones_Codelco.xlsx"
             )
-            documentos_zip = preparar_zip_correo(hoy, estado, estado_path)
+            documentos_adjuntos = preparar_documentos_correo(estado, estado_path)
             enviar_correo_con_reintentos(
-                resumen, hoy, estado, estado_path, documentos_zip
+                resumen, hoy, estado, estado_path, documentos_adjuntos
             )
         else:
             print("La ejecución de hoy ya terminó; no se procesará nuevamente.")
@@ -389,13 +404,17 @@ def procesar_ejecucion(
         asegurar_resultado(
             resumen_temporal,
             "hash_resumen",
-            lambda ruta: generar_consolidado(ruta, documentos, eventos_por_documento),
+            lambda ruta: generar_consolidado(
+                ruta, documentos, eventos_por_documento, eventos, anteriores
+            ),
             estado,
             estado_path,
         )
         validar_formato_resumen(resumen_temporal)
-        print(f"Comprimiendo {len(documentos)} documentos.", flush=True)
-        documentos_zip = preparar_zip_ejecucion(carpeta, hoy, estado, estado_path)
+        print(f"Preparando {len(documentos)} documentos adjuntos.", flush=True)
+        documentos_adjuntos = preparar_documentos_ejecucion(
+            carpeta, estado, estado_path
+        )
     reporte_temporal = carpeta / f"LIC ARIBA {hoy:%d-%m}.xlsx"
     asegurar_resultado(
         reporte_temporal,
@@ -426,7 +445,7 @@ def procesar_ejecucion(
         estado["correo"] = {
             "estado": "pendiente",
             "sha256": estado["hash_resumen"],
-            "sha256_zip": estado["hash_zip"],
+            "sha256_documentos": estado["documentos_adjuntos"],
         }
     guardar_estado(estado_path, estado)
     print(
@@ -434,7 +453,7 @@ def procesar_ejecucion(
     )
     if documentos and habilitar_correo:
         enviar_correo_con_reintentos(
-            destino_resumen, hoy, estado, estado_path, documentos_zip
+            destino_resumen, hoy, estado, estado_path, documentos_adjuntos
         )
 
 
@@ -506,11 +525,15 @@ def ejecutar_flujo_principal(
                     / "resumen_licitaciones"
                     / f"{fecha_ejecucion.isoformat()}_Resumen_Licitaciones_Codelco.xlsx"
                 )
-                documentos_zip = preparar_zip_correo(
-                    fecha_ejecucion, estado, estado_actual_path
+                documentos_adjuntos = preparar_documentos_correo(
+                    estado, estado_actual_path
                 )
                 enviar_correo_con_reintentos(
-                    resumen, fecha_ejecucion, estado, estado_actual_path, documentos_zip
+                    resumen,
+                    fecha_ejecucion,
+                    estado,
+                    estado_actual_path,
+                    documentos_adjuntos,
                 )
                 return 0
         while True:

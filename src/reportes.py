@@ -5,9 +5,7 @@ import re
 
 from bs4 import BeautifulSoup
 from openpyxl import Workbook, load_workbook
-from openpyxl.formatting.rule import Rule
 from openpyxl.styles import Font, PatternFill
-from openpyxl.styles.differential import DifferentialStyle
 
 
 @dataclass(frozen=True)
@@ -145,33 +143,49 @@ def guardar_reporte(ruta: Path, eventos: list[Evento], anteriores: list[str]) ->
     libro = Workbook()
     hoja = libro.active
     hoja.title = "data"
-    hoja.append(["Título", "ID", "Hora de finalización", "Tipo de evento", "ID"])
+    completar_hoja_reporte(hoja, eventos, anteriores)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    with ruta.open("xb") as archivo:
+        libro.save(archivo)
+
+
+def completar_hoja_reporte(hoja, eventos: list[Evento], anteriores: list[str]) -> None:
+    hoja.append(
+        ["Título", "ID", "Hora de finalización", "Tipo de evento", "ID", "Nuevo"]
+    )
+    ids_anteriores = set(anteriores)
     for evento in eventos:
         hoja.append(
-            [evento.titulo, evento.identificador, evento.finalizacion, evento.tipo]
+            [
+                evento.titulo,
+                evento.identificador,
+                evento.finalizacion,
+                evento.tipo,
+                None,
+                "No" if evento.identificador in ids_anteriores else "Sí",
+            ]
         )
         celda_titulo = hoja.cell(hoja.max_row, 1)
         celda_titulo.data_type = "s"
         celda_titulo.hyperlink = evento.enlace
         celda_titulo.style = "Hyperlink"
+        if evento.identificador not in ids_anteriores:
+            celda_id = hoja.cell(hoja.max_row, 2)
+            celda_id.fill = PatternFill(fill_type="solid", fgColor="FF9C0006")
+            celda_id.font = Font(color="FFFFFFFF")
         hoja.cell(hoja.max_row, 3).number_format = "dd-mm-yyyy hh:mm"
     for numero, identificador in enumerate(anteriores, start=2):
         hoja.cell(numero, 5, identificador)
-    ultima_fila = max(hoja.max_row, 2)
-    formato = DifferentialStyle(
-        fill=PatternFill(fill_type="solid", fgColor="FFC7CE"),
-        font=Font(color="9C0006"),
-    )
-    hoja.conditional_formatting.add(
-        f"B2:B{ultima_fila} E2:E{ultima_fila}",
-        Rule(type="uniqueValues", dxf=formato),
-    )
-    for columna, ancho in {"A": 75, "B": 20, "C": 23, "D": 18, "E": 20}.items():
+    for columna, ancho in {
+        "A": 75,
+        "B": 20,
+        "C": 23,
+        "D": 18,
+        "E": 20,
+        "F": 12,
+    }.items():
         hoja.column_dimensions[columna].width = ancho
     for celda in hoja[1]:
         celda.font = Font(bold=True)
     hoja.freeze_panes = "A2"
-    hoja.auto_filter.ref = f"A1:D{len(eventos) + 1}"
-    ruta.parent.mkdir(parents=True, exist_ok=True)
-    with ruta.open("xb") as archivo:
-        libro.save(archivo)
+    hoja.auto_filter.ref = f"A1:F{len(eventos) + 1}"

@@ -56,7 +56,7 @@ def crear_mensaje(
     remitente: str,
     fecha: date,
     resumen: Path,
-    documentos_zip: Path,
+    documentos_adjuntos: list[Path],
     destinatarios: list[str],
     copia: list[str],
 ) -> EmailMessage:
@@ -77,12 +77,13 @@ def crear_mensaje(
         subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=resumen.name,
     )
-    mensaje.add_attachment(
-        documentos_zip.read_bytes(),
-        maintype="application",
-        subtype="zip",
-        filename=documentos_zip.name,
-    )
+    for documento in documentos_adjuntos:
+        mensaje.add_attachment(
+            documento.read_bytes(),
+            maintype="application",
+            subtype="pdf" if documento.suffix.casefold() == ".pdf" else "msword",
+            filename=documento.name,
+        )
     return mensaje
 
 
@@ -163,7 +164,7 @@ def enviar_resumen_guardado(
     fecha: date,
     estado: dict,
     estado_path: Path,
-    documentos_zip: Path | None = None,
+    documentos_adjuntos: list[Path] | None = None,
 ) -> None:
     import keyring
 
@@ -181,11 +182,17 @@ def enviar_resumen_guardado(
         )
     if hash_archivo(resumen) != registro["sha256"]:
         raise ValueError("El resumen publicado cambió; no se enviará por correo")
-    if documentos_zip is None or hash_archivo(documentos_zip) != registro.get(
-        "sha256_zip"
+    if (
+        not documentos_adjuntos
+        or any(not documento.is_file() for documento in documentos_adjuntos)
+        or [
+            {"archivo": documento.name, "sha256": hash_archivo(documento)}
+            for documento in documentos_adjuntos
+        ]
+        != registro.get("sha256_documentos")
     ):
         raise ValueError(
-            "El ZIP de documentos falta o cambió; no se enviará por correo"
+            "Los documentos adjuntos faltan o cambiaron; no se enviará por correo"
         )
     remitente = keyring.get_password(SERVICIO_CORREO, "remitente")
     clave = keyring.get_password(SERVICIO_CORREO, "contrasena")
@@ -215,7 +222,7 @@ def enviar_resumen_guardado(
     if not pendientes:
         raise ValueError("No hay destinatarios pendientes para el envío")
     mensaje = crear_mensaje(
-        remitente, fecha, resumen, documentos_zip, destinatarios, copia
+        remitente, fecha, resumen, documentos_adjuntos, destinatarios, copia
     )
     print("Correo: conectando con Gmail mediante TLS.", flush=True)
     servidor = conectar_correo(remitente, clave)
@@ -269,12 +276,14 @@ def enviar_correo_con_reintentos(
     fecha: date,
     estado: dict,
     estado_path: Path,
-    documentos_zip: Path | None = None,
+    documentos_adjuntos: list[Path] | None = None,
 ) -> None:
     espera = 30
     while True:
         try:
-            enviar_resumen_guardado(resumen, fecha, estado, estado_path, documentos_zip)
+            enviar_resumen_guardado(
+                resumen, fecha, estado, estado_path, documentos_adjuntos
+            )
             return
         except (OSError, smtplib.SMTPException) as error:
             if estado["correo"]["estado"] != "pendiente":
@@ -332,7 +341,8 @@ def ejecutar_resolucion_correo(
 def ejecutar_prueba_correo(
     base: Path, raiz: Path, fecha: date, nueva_prueba: bool
 ) -> None:
-    from src.ejecucion import bloqueo_ejecucion, preparar_zip_ejecucion
+    from src.consolidado import validar_formato_resumen
+    from src.ejecucion import bloqueo_ejecucion, preparar_documentos_ejecucion
 
     raiz = raiz.resolve()
     resumen = (
@@ -362,7 +372,7 @@ def ejecutar_prueba_correo(
                 "correo": {"estado": "pendiente", "sha256": hash_archivo(resumen)}
             }
             guardar_estado(estado_path, estado)
-        documentos_zip = None
+        documentos_adjuntos = None
         if estado["correo"]["estado"] == "pendiente":
             if "destinatarios" not in estado["correo"]:
                 estado["correo"]["solo_remitente"] = True
@@ -381,15 +391,24 @@ def ejecutar_prueba_correo(
                 )
             if estado_ejecucion.get("hash_resumen") != hash_archivo(resumen):
                 raise ValueError("El resumen no coincide con la ejecución guardada")
-            documentos_zip = preparar_zip_ejecucion(
+            validar_formato_resumen(resumen)
+            if (
+                "sha256_zip" in estado["correo"]
+                and "sha256_documentos" not in estado["correo"]
+            ):
+                raise ValueError(
+                    "La prueba pendiente usa el formato ZIP anterior; requiere revisión"
+                )
+            documentos_adjuntos = preparar_documentos_ejecucion(
                 estado_ejecucion_path.parent,
-                fecha,
                 estado_ejecucion,
                 estado_ejecucion_path,
             )
-            if "sha256_zip" not in estado["correo"]:
-                estado["correo"]["sha256_zip"] = estado_ejecucion["hash_zip"]
+            if "sha256_documentos" not in estado["correo"]:
+                estado["correo"]["sha256_documentos"] = estado_ejecucion[
+                    "documentos_adjuntos"
+                ]
                 guardar_estado(estado_path, estado)
         enviar_correo_con_reintentos(
-            resumen, fecha, estado, estado_path, documentos_zip
+            resumen, fecha, estado, estado_path, documentos_adjuntos
         )

@@ -5,7 +5,6 @@ import subprocess
 import sys
 import tempfile
 import pytest
-import zipfile
 from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
@@ -672,16 +671,14 @@ class TestFlujo:
                 / "2026-11-11"
                 / "12-11 Doc1 - 6001.doc"
             ).exists()
-            zip_documentos = (
+            documento_pdf = (
                 codigo
                 / ".datos"
                 / "ejecuciones"
                 / "2026-11-11"
-                / "2026-11-11_Documentos_Licitaciones_Codelco.zip"
+                / "12-11 Doc1 - 6001.pdf"
             )
-            with zipfile.ZipFile(zip_documentos) as archivo:
-                assert (archivo.namelist()) == (["12-11 Doc1 - 6001.pdf"])
-                assert archivo.read("12-11 Doc1 - 6001.pdf").startswith(b"%PDF-")
+            assert documento_pdf.read_bytes().startswith(b"%PDF-")
             assert not ((raiz / "Descargas").exists())
             resumen = (
                 raiz

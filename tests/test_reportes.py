@@ -54,8 +54,11 @@ class TestReportes:
             hoja = libro.active
             assert (hoja["A3"].hyperlink.target) == ("https://example.com/2")
             assert ([hoja["E2"].value, hoja["E3"].value]) == (anteriores)
-            rango = next(iter(hoja.conditional_formatting))
-            assert (hoja.conditional_formatting[rango][0].type) == ("uniqueValues")
+            assert [hoja["F2"].value, hoja["F3"].value] == ["No", "Sí"]
+            assert hoja["B3"].fill.patternType == "solid"
+            assert hoja["B3"].fill.fgColor.rgb == "FF9C0006"
+            assert hoja["B3"].font.color.rgb == "FFFFFFFF"
+            assert hoja["B2"].fill.patternType is None
             libro.close()
             with pytest.raises(FileExistsError):
                 guardar_reporte(ruta, eventos, anteriores)

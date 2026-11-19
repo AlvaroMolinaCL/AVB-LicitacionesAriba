@@ -10,6 +10,52 @@ from src.reportes import Evento
 
 
 class TestConsolidado:
+    def test_articulos_iniciales_con_material_y_cantidad_no_incluyen_secciones(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            documento = Path(carpeta) / "evento.doc"
+            documento.write_text(
+                """<html><table>
+                <tr><td class="titleFieldValue">1 TARJETA EMERSON SE4001</td><td></td></tr>
+                <tr><td>Número de material</td><td>000000000001608971</td></tr>
+                <tr><td>Cantidad</td><td>1 Unidades</td></tr>
+                <tr><td>Texto Largo</td><td>Detalle de la tarjeta</td></tr>
+                <tr><td>Fecha de entrega solicitada</td><td>vie, 12 feb, 2027</td></tr>
+                <tr><td class="titleFieldValue">2 TARJETA EMERSON SE4002</td><td></td></tr>
+                <tr><td>Número de material</td><td>000000000001608972</td></tr>
+                <tr><td>Cantidad</td><td>1 Unidades</td></tr>
+                <tr><td class="titleFieldValue">3 Información a considerar</td><td></td></tr>
+                <tr><td>Texto Largo</td><td>Instrucciones generales</td></tr>
+                <tr><td class="titleFieldValue">4 Requisitos</td><td></td></tr>
+                <tr><td>Cantidad</td><td>1 documento</td></tr>
+                <tr><td class="titleFieldValue">5 Referencia</td><td></td></tr>
+                <tr><td>Número de material</td><td>00042</td></tr>
+                <tr><td class="titleFieldValue">6 Formulario incompleto</td><td></td></tr>
+                <tr><td>Número de material</td><td></td></tr><tr><td>Cantidad</td><td></td></tr>
+                </table></html>""",
+                encoding="utf-8",
+            )
+            for es_sr in (False, True):
+                filas = extraer_documento(documento, es_sr)
+                assert [fila["Ítem Principal"] for fila in filas] == [
+                    "1 TARJETA EMERSON SE4001",
+                    "2 TARJETA EMERSON SE4002",
+                ]
+                assert [fila["N.° Material"] for fila in filas] == [
+                    "1608971",
+                    "1608972",
+                ]
+                assert filas[0]["Cantidad"] == "1 Unidades"
+                assert filas[0]["Fecha Entrega"] == "vie, 12 feb, 2027"
+                assert filas[0]["Descripción"] == "Detalle de la tarjeta"
+            resumen = Path(carpeta) / "resumen.xlsx"
+            generar_consolidado(resumen, [(documento, False)])
+            libro = load_workbook(resumen, read_only=True, data_only=True)
+            assert [fila[2] for fila in list(libro.active.values)[1:]] == [
+                "1 TARJETA EMERSON SE4001",
+                "2 TARJETA EMERSON SE4002",
+            ]
+            libro.close()
+
     def test_fecha_hora_y_hipervinculos_corresponden_a_cada_documento(self):
         with tempfile.TemporaryDirectory() as carpeta:
             carpeta = Path(carpeta)
