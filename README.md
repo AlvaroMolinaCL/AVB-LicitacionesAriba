@@ -106,10 +106,11 @@ El comando reemplaza el ejecutable anterior. El navegador no se empaqueta dentro
 
 ## Pruebas
 
-Para ejecutar pruebas, utilice:
+Para instalar pytest y ejecutar las pruebas, utilice:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test_*.py' -v
+.\.venv\Scripts\python.exe -m pip install "pytest>=7,<10"
+.\.venv\Scripts\python.exe -m pytest -v
 ```
 
 ## Programación de Tarea en Windows
