@@ -26,7 +26,10 @@ class TestFlujo:
         playwright.chromium.launch_persistent_context.return_value = contexto
         with tempfile.TemporaryDirectory() as carpeta:
             raiz = Path(carpeta)
-            estado_path = raiz / ".datos" / "ejecuciones" / "2026-11-11" / "estado.json"
+            fecha = date.today()
+            estado_path = (
+                raiz / ".datos" / "ejecuciones" / fecha.isoformat() / "estado.json"
+            )
             estado_path.parent.mkdir(parents=True)
             estado_path.write_text(
                 json.dumps(
@@ -50,7 +53,7 @@ class TestFlujo:
             ) as procesar:
                 assert (
                     modulo_ejecucion.ejecutar_flujo_principal(
-                        raiz, "servicio", raiz, date(2026, 11, 11), False, False, True
+                        raiz, "servicio", raiz, fecha, False, False, True
                     )
                 ) == (0)
             seleccionar.assert_not_called()
